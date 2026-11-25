@@ -45,11 +45,15 @@ const isStandalone =
 const engine = new WebSpeechEngine();
 
 function renderDiag(micPermission = 'unknown'): void {
-  const iosMatch = navigator.userAgent.match(/OS (\d+)_(\d+)/);
-  const ios = iosMatch ? `${iosMatch[1]}.${iosMatch[2]}` : 'n/a';
+  // Since iOS 26, Safari freezes the iOS number in its user-agent string at 18.x
+  // (a privacy measure), so we show the Safari version instead. From iOS 26 on,
+  // the Safari version matches the iOS version.
+  const safariMatch = navigator.userAgent.match(/Version\/(\d+(?:\.\d+)?)/);
+  // Home Screen apps often leave the Safari version out entirely.
+  const safari = safariMatch ? safariMatch[1] : 'hidden by iOS';
   const rows: [string, string, boolean | null][] = [
     ['Launched from', isStandalone ? 'Home Screen' : 'Browser tab', null],
-    ['iOS version', ios, null],
+    ['Safari version', safari, null],
     ['HTTPS (secure)', String(window.isSecureContext), window.isSecureContext],
     ['Speech recognition', engine.isSupported() ? 'available' : 'NOT available', engine.isSupported()],
     ['Mic recording (fallback)', 'MediaRecorder' in window ? 'available' : 'NOT available', 'MediaRecorder' in window],
