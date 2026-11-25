@@ -59,8 +59,17 @@ export function loadModel(): Promise<void> {
   });
 }
 
+/** Requests run one at a time (the model can't do two at once), so queue them. */
+let queue: Promise<unknown> = Promise.resolve();
+
 /** Turns 16 kHz mono audio into text. */
 export function transcribe(audio: Float32Array): Promise<{ text: string; ms: number }> {
+  const run = queue.then(() => transcribeNow(audio));
+  queue = run.catch(() => {});
+  return run;
+}
+
+function transcribeNow(audio: Float32Array): Promise<{ text: string; ms: number }> {
   const id = nextId++;
   return new Promise((resolve, reject) => {
     const off = onModelMessage((msg) => {
@@ -112,11 +121,18 @@ export class ClipRecorder {
     mute.connect(this.ctx.destination);
   }
 
-  /** Stops recording and returns 16 kHz mono audio ready for the model. */
-  async stop(): Promise<Float32Array> {
-    const ctx = this.ctx;
-    this.node?.disconnect();
-    this.stream?.getTracks().forEach((t) => t.stop());
+  /** Everything recorded so far (16 kHz), without stopping — for the live preview. */
+  snapshot(): Promise<Float32Array> {
+    return resample(this.joined(), this.ctx?.sampleRate ?? TARGET_RATE);
+  }
+
+  /** Seconds recorded so far. */
+  get seconds(): number {
+    const rate = this.ctx?.sampleRate ?? TARGET_RATE;
+    return this.chunks.reduce((n, c) => n + c.length, 0) / rate;
+  }
+
+  private joined(): Float32Array {
     const length = this.chunks.reduce((n, c) => n + c.length, 0);
     const raw = new Float32Array(length);
     let offset = 0;
@@ -124,6 +140,15 @@ export class ClipRecorder {
       raw.set(c, offset);
       offset += c.length;
     }
+    return raw;
+  }
+
+  /** Stops recording and returns 16 kHz mono audio ready for the model. */
+  async stop(): Promise<Float32Array> {
+    const ctx = this.ctx;
+    this.node?.disconnect();
+    this.stream?.getTracks().forEach((t) => t.stop());
+    const raw = this.joined();
     const rate = ctx?.sampleRate ?? TARGET_RATE;
     void ctx?.close();
     this.ctx = null;
@@ -184,12 +209,33 @@ export class OnDeviceEngine implements SpeechEngine {
         if (!this.recording) return;
         this.handlers.onEvent?.('start');
         this.handlers.onEvent?.('audiostart'); // mic is live → button turns red
+        void this.livePreview();
       })
       .catch((e: Error) => {
         this.recording = false;
         this.handlers.onError?.(e.name === 'NotAllowedError' ? 'not-allowed' : 'audio-capture', e.message);
       });
   }
+
+  /**
+   * While the button is held: re-read the audio so far, again and again, and show
+   * the words as you go. (The model can't stream, so this is the next best thing.)
+   */
+  private async livePreview(): Promise<void> {
+    const clip = ++this.clipNo;
+    while (this.recording && clip === this.clipNo) {
+      await new Promise((r) => setTimeout(r, 300));
+      if (!this.recording || modelStatus.state !== 'ready' || this.rec.seconds < 0.6) continue;
+      try {
+        const { text } = await transcribe(await this.rec.snapshot());
+        // Only show it if you're still talking (the final result takes over after release).
+        if (this.recording && clip === this.clipNo && text) this.handlers.onInterim?.(text);
+      } catch {
+        /* a preview failing doesn't matter — the final pass is what counts */
+      }
+    }
+  }
+  private clipNo = 0;
 
   stop(): void {
     if (!this.recording) return;
