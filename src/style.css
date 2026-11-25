@@ -30,11 +30,6 @@ html, body {
 
 button, input, select, textarea { font: inherit; color: inherit; }
 button { position: relative; }
-/* Invisible switch over each button (iPhone haptics experiment, see ui/dom.ts) */
-body.mic-on .hap { display: none; }
-.hap { position: absolute; inset: 0; opacity: 0.011; overflow: hidden; border-radius: inherit; }
-/* tiny switch: the finger lands on the label, which flips the switch and passes the tap on */
-.hap input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
 [hidden] { display: none !important; }
 .muted { color: var(--muted); }
 .small { font-size: 14px; }

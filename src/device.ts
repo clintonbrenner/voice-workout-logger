@@ -4,39 +4,23 @@
  */
 
 // ---------- Haptics ----------
-// Android: navigator.vibrate. iPhone Safari ignores that, but since iOS 18 tapping a
-// "switch" checkbox gives a tiny haptic click — so we keep a hidden one and tap it.
-let hapticLabel: HTMLLabelElement | null = null;
+// Android only (navigator.vibrate). iPhone Safari has no vibration for websites.
+// We tried an iOS trick (flipping a hidden on/off switch), but it interfered with
+// the microphone — especially with AirPods — so it was removed.
 let micOn = false;
 
-/**
- * While the mic is recording, haptics are switched off: on iPhone a haptic tick
- * during recording can interrupt the microphone ("aborted"). This also disables
- * the invisible haptic switches under buttons (via the body class).
- */
+/** Marks when the mic is recording, so nothing buzzes during a clip. */
 export function setMicOn(on: boolean): void {
   micOn = on;
-  document.body.classList.toggle('mic-on', on);
 }
 
 export function haptic(): void {
   if (micOn) return;
   try {
-    if (navigator.vibrate?.(15)) return;
+    navigator.vibrate?.(15);
   } catch {
     /* ignore */
   }
-  if (!hapticLabel) {
-    hapticLabel = document.createElement('label');
-    hapticLabel.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none';
-    hapticLabel.ariaHidden = 'true';
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.setAttribute('switch', '');
-    hapticLabel.appendChild(input);
-    document.body.appendChild(hapticLabel);
-  }
-  hapticLabel.click();
 }
 
 // ---------- Screen wake lock ----------
