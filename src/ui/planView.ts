@@ -305,6 +305,22 @@ function diagnosticsSection() {
         ['Logged sets (all time)', String(state.recentSets.length)],
       ].map(([k, v]) => h('div', null, h('span', null, k), h('b', null, v))),
     ),
+    h('button', {
+      class: 'btn small', type: 'button',
+      onclick: async () => {
+        // Newest-first log plus the key facts, ready to paste into a message.
+        const text = [
+          `Lift Log ${__APP_VERSION__} · ${isStandalone ? 'Home Screen' : 'Browser tab'} · Safari ${safari}`,
+          ...debugLog,
+        ].join('\n');
+        try {
+          await navigator.clipboard.writeText(text);
+          showToast('Log copied — paste it into a message.');
+        } catch {
+          showToast("Couldn't copy. Try again.");
+        }
+      },
+    }, 'Copy log'),
     h('ol', { class: 'log' }, debugLog.map((l) => h('li', null, l))),
   );
 }
