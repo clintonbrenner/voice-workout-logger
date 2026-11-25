@@ -12,7 +12,8 @@ import type { PlannedExercise } from '../models';
 import { importPlan, AI_PROMPT, FORMAT_EXAMPLE, type ImportedDay } from '../plan/importPlan';
 import * as store from '../store';
 import { state } from '../store';
-import { DEFAULT_EXERCISES } from '../parser';
+import { DEFAULT_EXERCISES, parseSet } from '../parser';
+import { ClipRecorder, loadModel, modelStatus, onModelMessage, rememberOnDevice, transcribe } from '../speech/onDevice';
 import { showToast } from './workoutView';
 
 /** Plan being reviewed before saving (null = not reviewing). */
@@ -262,6 +263,53 @@ function settingsSection() {
 
 let diagOpen = false;
 
+/**
+ * On-device speech test. First tap downloads the model (once); later taps
+ * record 4 seconds and show what the model heard and how long it took.
+ */
+const recorder = new ClipRecorder();
+async function runOnDeviceTest(btn: HTMLButtonElement, out: HTMLElement): Promise<void> {
+  btn.disabled = true;
+  try {
+    if (modelStatus.state !== 'ready') {
+      out.textContent = 'Downloading speech model (one time)…';
+      const off = onModelMessage((m) => {
+        if (m.type === 'progress') out.textContent = `Downloading speech model… ${m.pct}% of ${m.mb} MB`;
+      });
+      try {
+        await loadModel();
+      } finally {
+        off();
+      }
+      rememberOnDevice(true);
+      out.textContent = 'Downloaded ✓ The record button now uses on-device speech. Tap again to test it here.';
+      btn.textContent = 'Test on-device speech';
+      log(`on-device model ready on ${modelStatus.device}; record button switched to on-device`);
+      return;
+    }
+    // Recording must start right inside the tap (iPhone rule).
+    const started = recorder.start();
+    out.textContent = 'Starting mic…';
+    await started;
+    for (let s = 4; s > 0; s--) {
+      out.textContent = `Recording — say a set now… ${s}`;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    const audio = await recorder.stop();
+    out.textContent = 'Working it out…';
+    const { text, ms } = await transcribe(audio);
+    const p = parseSet(text, store.parseContext());
+    const set = p.exercise ? `${p.exercise}: ${p.weightLb ?? '?'} lb × ${p.reps ?? '?'}` : 'no set found';
+    out.textContent = `Heard: “${text || '(nothing)'}” in ${(ms / 1000).toFixed(1)} s → ${set}`;
+    log(`on-device: "${text}" in ${ms} ms (${modelStatus.device}, mic "${recorder.device}")`);
+  } catch (e) {
+    out.textContent = `On-device test failed: ${(e as Error).message}`;
+    log(`on-device failed: ${(e as Error).message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /** Mic level test: shows a live meter, then a verdict. */
 async function runMicTest(meter: HTMLElement, result: HTMLElement, btn: HTMLButtonElement): Promise<void> {
   btn.disabled = true;
@@ -295,6 +343,14 @@ function diagnosticsSection() {
     { class: 'panel', open: diagOpen, ontoggle: (e: Event) => (diagOpen = (e.target as HTMLDetailsElement).open) },
     h('summary', null, 'Diagnostics'),
     h('div', { class: 'mic-test' }, btn, h('div', { class: 'meter' }, meter), result),
+    (() => {
+      const out = h('div', { class: 'small' },
+        modelStatus.state === 'ready' ? 'Model ready. Tap and say a set.' : 'Runs speech-to-text on this device (one-time ~60 MB download).');
+      const b: HTMLButtonElement = h('button', {
+        class: 'btn small', type: 'button', onclick: () => void runOnDeviceTest(b, out),
+      }, modelStatus.state === 'ready' ? 'Test on-device speech' : 'Download on-device speech');
+      return h('div', { class: 'mic-test' }, b, out);
+    })(),
     h('div', { class: 'diag' },
       [
         ['App version', __APP_VERSION__],

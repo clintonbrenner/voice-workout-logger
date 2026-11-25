@@ -15,6 +15,9 @@ const VERSION = new Date().toISOString().slice(0, 16).replace('T', ' ');
 export default defineConfig(({ command }) => ({
   base: command === 'build' ? '/voice-workout-logger/' : '/',
   define: { __APP_VERSION__: JSON.stringify(VERSION) },
+  // The speech model runs in a background worker that uses modern JS modules.
+  worker: { format: 'es' },
+  build: { target: 'es2022' },
   plugins: [
     {
       name: 'version-json',

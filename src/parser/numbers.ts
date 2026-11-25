@@ -122,6 +122,17 @@ function fixUps(toks: Tok[]): Tok[] {
         out.push(Math.floor(t / 10), 'for');
         continue;
       }
+      // "65 410" → "65 for 10" (glued "for"/"4" onto the reps): a weight, then a
+      // number that's "4" + a believable rep count, but too big to be reps itself.
+      const s = String(t);
+      const rest = Number(s.slice(1));
+      if (
+        typeof out[out.length - 1] === 'number' && Number.isInteger(t) && t > 30 &&
+        s.length >= 2 && s.length <= 3 && s[0] === '4' && s[1] !== '0' && rest >= 1 && rest <= 30
+      ) {
+        out.push('for', rest);
+        continue;
+      }
     }
     out.push(t);
   }

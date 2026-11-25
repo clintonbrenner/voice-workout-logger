@@ -26,8 +26,30 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  // Only handle our own files (not the mic, not other websites).
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+
+  // Speech engine files from the jsDelivr CDN never change for a given version,
+  // so keep a copy and use it first (lets on-device speech work offline).
+  if (url.hostname === 'cdn.jsdelivr.net') {
+    event.respondWith(
+      caches.match(req).then(
+        (hit) =>
+          hit ||
+          fetch(req).then((res) => {
+            if (res.ok) {
+              const copy = res.clone();
+              caches.open(CACHE).then((c) => c.put(req, copy));
+            }
+            return res;
+          }),
+      ),
+    );
+    return;
+  }
+
+  // Only handle our own files otherwise (the speech model itself is cached by its library).
+  if (url.origin !== self.location.origin) return;
 
   // For the page itself and version.json, skip the phone's HTTP cache (GitHub lets
   // phones reuse old copies for 10 minutes) so new versions show up right away.

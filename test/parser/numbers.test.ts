@@ -54,6 +54,16 @@ describe('speech-to-text repairs', () => {
   it('"for" glued onto the weight: 1854 8', () => {
     expect(toks('1854 8')).toEqual([185, 'for', 8]);
   });
+  it('"for" glued onto the reps: 65 410 → 65 for 10, 185 48 → 185 for 8', () => {
+    expect(toks('65 410')).toEqual([65, 'for', 10]);
+    expect(toks('185 48')).toEqual([185, 'for', 8]);
+    expect(toks('135 412')).toEqual([135, 'for', 12]);
+  });
+  it('real weights starting with 4 are left alone', () => {
+    expect(toks('405 for 3')).toEqual([405, 'for', 3]); // 4-0-5: "05" isn't reps
+    expect(toks('bench 45')).toEqual(['bench', 45]); // nothing before it
+    expect(toks('20 for 4')).toEqual([20, 'for', 4]);
+  });
   it('splits 185lbs and 185x8', () => {
     expect(toks('185lbs')).toEqual([185, 'lb']);
     expect(toks('185x8')).toEqual([185, 'x', 8]);

@@ -8,6 +8,8 @@
 import './style.css';
 import { $ } from './ui/dom';
 import { WebSpeechEngine } from './speech/webSpeech';
+import { OnDeviceEngine, onDeviceChosen, loadModel } from './speech/onDevice';
+import type { SpeechEngine, SpeechHandlers } from './speech/types';
 import { parseSet } from './parser';
 import { haptic, keepScreenAwake, setMicOn } from './device';
 import * as store from './store';
@@ -56,8 +58,18 @@ new ResizeObserver(([e]) => {
 // ---------------------------------------------------------------------------
 const recordBtn = $<HTMLButtonElement>('record');
 const live = $('live');
-const engine = new WebSpeechEngine();
+/*
+ * Two speech engines, same interface:
+ *  - On-device (Moonshine): records the clip itself and transcribes on the phone.
+ *    Used automatically once its model has been downloaded (Plan → Diagnostics).
+ *  - Safari's built-in recognizer: the fallback until then.
+ */
+const safariEngine = new WebSpeechEngine();
+const onDeviceEngine = new OnDeviceEngine();
+let engine: SpeechEngine = onDeviceChosen() ? onDeviceEngine : safariEngine;
 let recording = false;
+// Model already downloaded earlier? Warm it up in the background so the first set is quick.
+if (onDeviceChosen()) void loadModel().catch((e) => log(`on-device model failed to load: ${(e as Error).message}`));
 
 function updateRecordLabel(): void {
   if (recording) return;
@@ -99,7 +111,7 @@ function goLive(): void {
   }
 }
 
-engine.handlers = {
+const handlers: SpeechHandlers = {
   onEvent: (name) => {
     // For errors, note how long after pressing it happened and whether the app was on screen.
     const extra = name.startsWith('error')
@@ -122,7 +134,6 @@ engine.handlers = {
       return;
     }
     haptic();
-    log('wake lock: off (test build)');
     const parsed = parseSet(text, store.parseContext());
     log(`parsed: ${JSON.stringify({ ex: parsed.exercise, w: parsed.weightLb, r: parsed.reps, unsure: parsed.uncertain })}`);
     store.setPending(parsed);
@@ -143,6 +154,8 @@ engine.handlers = {
         : `Voice error: ${code}. Try again, or use + to add manually.`;
   },
 };
+safariEngine.handlers = handlers;
+onDeviceEngine.handlers = handlers;
 
 function startRecording(): void {
   if (recording) return;
@@ -162,6 +175,7 @@ function startRecording(): void {
   recordBtn.classList.remove('busy', 'rec');
   recordBtn.classList.add('starting'); // amber until the mic is really live
   live.textContent = 'Starting mic…';
+  engine = onDeviceChosen() ? onDeviceEngine : safariEngine;
   engine.start(); // must run right inside the touch handler on iOS
   // Starting to log counts as starting the workout.
   if (!state.session) void store.startSession().then(() => keepScreenAwake(true));
@@ -202,7 +216,17 @@ recordBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // Development only: lets us test the voice flow on a PC by typing a transcript
 // into the browser console: simulateVoice("hammer curls 30 for 12")
+// and test the on-device model with an audio file: testAsrFile("/test.wav")
 if (import.meta.env.DEV) {
+  (window as unknown as { testAsrFile: (url: string) => Promise<unknown> }).testAsrFile = async (url) => {
+    const od = await import('./speech/onDevice');
+    const t0 = performance.now();
+    await od.loadModel();
+    const loadMs = Math.round(performance.now() - t0);
+    const audio = await od.decodeFile(await (await fetch(url)).arrayBuffer());
+    const r = await od.transcribe(audio);
+    return { ...r, loadMs, device: od.modelStatus.device, seconds: audio.length / 16000 };
+  };
   (window as unknown as { simulateVoice: (t: string) => void }).simulateVoice = (t) => {
     if (state.pending && store.isComplete(state.pending)) void acceptPending();
     engine.handlers.onFinal?.(t);

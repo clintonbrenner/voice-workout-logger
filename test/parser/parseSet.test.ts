@@ -53,6 +53,7 @@ describe('speech-to-text mistakes', () => {
     ['bench 185 4 8', { exercise: 'Bench Press', weightLb: 185, reps: 8, uncertain: [] }],
     ['bench 1854 8', { exercise: 'Bench Press', weightLb: 185, reps: 8, uncertain: [] }],
     ['bench 185 for ate', { exercise: 'Bench Press', weightLb: 185, reps: 8, uncertain: [] }],
+    ['bench 185 48', { exercise: 'Bench Press', weightLb: 185, reps: 8, uncertain: [] }],
     ['bench one eighty five four eight', { exercise: 'Bench Press', weightLb: 185, reps: 8, uncertain: [] }],
     ['bench 185 8 wraps', { exercise: 'Bench Press', weightLb: 185, reps: 8, uncertain: [] }],
     ['bench 185 lbs 8 rep', { exercise: 'Bench Press', weightLb: 185, reps: 8, uncertain: [] }],
@@ -90,6 +91,8 @@ describe('bodyweight', () => {
 describe('your Arms plan', () => {
   it.each<[string, Expect]>([
     ['preacher curl 60 for 10', { exercise: 'EZ-Bar Preacher Curl', weightLb: 60, reps: 10, uncertain: [] }],
+    // exactly what the on-device model produced in testing:
+    ['Preacher curl 135 oh i mean 65 410.', { exercise: 'EZ-Bar Preacher Curl', weightLb: 65, reps: 10, uncertain: [] }],
     ['easy bar preacher 60 for 10', { exercise: 'EZ-Bar Preacher Curl', weightLb: 60, reps: 10, uncertain: [] }],
     ['EZ bar curl 60 for 10', { exercise: 'EZ-Bar Preacher Curl', weightLb: 60, reps: 10, uncertain: [] }],
     ['overhead extension 50 for 12', { exercise: 'Overhead Cable Triceps Extension', weightLb: 50, reps: 12, uncertain: [] }],
