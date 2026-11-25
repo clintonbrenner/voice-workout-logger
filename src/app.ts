@@ -122,6 +122,7 @@ engine.handlers = {
       return;
     }
     haptic();
+    log('wake lock: off (test build)');
     const parsed = parseSet(text, store.parseContext());
     log(`parsed: ${JSON.stringify({ ex: parsed.exercise, w: parsed.weightLb, r: parsed.reps, unsure: parsed.uncertain })}`);
     store.setPending(parsed);

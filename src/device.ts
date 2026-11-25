@@ -27,7 +27,15 @@ export function haptic(): void {
 let wantAwake = false;
 let sentinel: WakeLockSentinel | null = null;
 
+/**
+ * TEMPORARILY OFF: testing whether the screen wake lock stops Safari's speech
+ * recognition from hearing anything after the first set (the first set always
+ * records before the lock is taken). Set to true to turn it back on.
+ */
+const WAKE_LOCK_ENABLED = false;
+
 export async function keepScreenAwake(on: boolean): Promise<void> {
+  if (!WAKE_LOCK_ENABLED) return;
   wantAwake = on;
   if (!on) {
     await sentinel?.release().catch(() => {});
