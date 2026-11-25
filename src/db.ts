@@ -101,6 +101,32 @@ export async function getRecentSets(limit = 500): Promise<LoggedSet[]> {
   return out;
 }
 
+export async function getAllSets(): Promise<LoggedSet[]> {
+  return (await db()).getAll('sets');
+}
+
+/** Deletes a session and all its sets. */
+export async function deleteSession(id: string): Promise<void> {
+  const d = await db();
+  const tx = d.transaction(['sessions', 'sets'], 'readwrite');
+  const ids = await tx.objectStore('sets').index('bySession').getAllKeys(id);
+  await Promise.all([...ids.map((k) => tx.objectStore('sets').delete(k)), tx.objectStore('sessions').delete(id)]);
+  await tx.done;
+}
+
+/** Adds everything from a backup in one go. */
+export async function bulkAdd(data: { workouts: Workout[]; sessions: Session[]; sets: LoggedSet[]; aliases: CustomAlias[] }): Promise<void> {
+  const d = await db();
+  const tx = d.transaction(['workouts', 'sessions', 'sets', 'aliases'], 'readwrite');
+  await Promise.all([
+    ...data.workouts.map((x) => tx.objectStore('workouts').put(x)),
+    ...data.sessions.map((x) => tx.objectStore('sessions').put(x)),
+    ...data.sets.map((x) => tx.objectStore('sets').put(x)),
+    ...data.aliases.map((x) => tx.objectStore('aliases').put(x)),
+  ]);
+  await tx.done;
+}
+
 // ---------- Aliases ----------
 export async function getAliases(): Promise<CustomAlias[]> {
   return (await db()).getAll('aliases');

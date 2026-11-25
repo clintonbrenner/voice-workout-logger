@@ -4,9 +4,17 @@ A phone-first web app. Hold the big button, say "bench, 185, 8 reps", and it log
 
 **Live app:** https://clintonbrenner.github.io/voice-workout-logger/
 
-**Current state: Milestone 3.** Workout tab (exercise menu, voice logging with a confirmation
-card, Edit/Undo, manual add), Plan tab (one-tap paste import, review, nicknames, settings).
-Everything is stored on your phone. History/export and Progress charts come next.
+**Current state: all 6 milestones built.**
+- **Workout:** exercise menu, voice logging with a confirmation card, Edit/Undo, manual add.
+- **Plan:** one-tap paste import, review editor, ChatGPT prompt, nicknames, settings.
+- **Progress:** chart per exercise (heaviest, est. 1RM, volume, reps at a weight), PRs, trends,
+  sortable table of every set.
+- **History:** past workouts, CSV export, copy as text, JSON backup & restore.
+- Installable, works offline, shows an Update button when a new version is published.
+
+Everything is stored on your phone (IndexedDB). Back up from the History tab now and then.
+
+To change the app icon, edit `scripts/icon.svg` and run `npm run icons`.
 
 Every `git push` to `main` runs the tests and republishes the site automatically.
 

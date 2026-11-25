@@ -14,6 +14,8 @@ import * as store from './store';
 import { state, type Tab } from './store';
 import { renderWorkout, acceptPending, armAutoAccept, clearAutoAccept, renderConfirm, showToast } from './ui/workoutView';
 import { renderPlan, log } from './ui/planView';
+import { renderHistory } from './ui/historyView';
+import { renderProgress } from './ui/progressView';
 
 // ---------------------------------------------------------------------------
 // Tabs
@@ -37,6 +39,8 @@ function render(): void {
   // The plan tab re-draws itself on its own actions (so typing isn't interrupted),
   // but refresh it when you switch to it or when its data changes elsewhere.
   if (state.tab === 'plan' && (lastTab !== 'plan' || !document.activeElement?.matches('input, textarea, select'))) renderPlan();
+  if (state.tab === 'history') void renderHistory();
+  if (state.tab === 'progress') void renderProgress();
   lastTab = state.tab;
   updateRecordLabel();
 }

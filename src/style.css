@@ -29,6 +29,11 @@ html, body {
 }
 
 button, input, select, textarea { font: inherit; color: inherit; }
+button { position: relative; }
+/* Invisible switch over each button (iPhone haptics experiment, see ui/dom.ts) */
+.hap { position: absolute; inset: 0; opacity: 0.011; overflow: hidden; border-radius: inherit; }
+/* tiny switch: the finger lands on the label, which flips the switch and passes the tap on */
+.hap input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
 [hidden] { display: none !important; }
 .muted { color: var(--muted); }
 .small { font-size: 14px; }
@@ -305,6 +310,38 @@ h2 { font-size: 20px; margin: 0 0 10px; }
 .segmented { display: flex; background: var(--bg); border-radius: 12px; padding: 4px; gap: 4px; }
 .segmented button { flex: 1; border: 0; background: transparent; padding: 12px 4px; border-radius: 9px; color: var(--muted); font-weight: 600; }
 .segmented button.on { background: var(--panel-2); color: var(--text); }
+/* ---------- History tab ---------- */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid var(--warn); }
+.banner > div { flex: 1 1 100%; }
+.session { padding: 0; overflow: hidden; }
+.session-head { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: none; border: 0; text-align: left; padding: 14px; }
+.session-date { font-weight: 700; font-size: 18px; }
+.live-badge { margin-left: 8px; font-size: 12px; background: var(--accent); color: #fff; border-radius: 999px; padding: 2px 8px; vertical-align: middle; }
+.chev { color: var(--muted); font-size: 20px; }
+.session-ex { padding: 8px 14px; border-top: 1px solid var(--line); }
+.session-ex-name { font-weight: 600; }
+.session-actions { padding: 10px 14px 14px; margin: 0; }
+
+/* ---------- Progress tab ---------- */
+.trend-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.trend-chip { background: var(--bg); border-radius: 10px; padding: 8px 10px; }
+.trend { font-weight: 700; }
+.trend.up { color: var(--ok); }
+.trend.down { color: var(--rec); }
+.trend.flat { color: var(--warn); }
+.chart-box { position: relative; height: 240px; margin: 12px 0 6px; }
+.chart-empty { margin: 12px 0 0; }
+.weight-pick { margin-top: 10px; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.pr-card { background: var(--bg); border-radius: 12px; padding: 10px 12px; }
+.pr-value { font-size: 24px; font-weight: 800; margin: 2px 0; }
+table.data { width: 100%; border-collapse: collapse; font-size: 16px; margin-top: 8px; }
+table.data td, table.data th { padding: 10px 6px; border-top: 1px solid var(--line); text-align: left; }
+table.data th { color: var(--muted); font-weight: 600; font-size: 14px; border-top: 0; }
+.sets-table tr:not(:first-child) { cursor: pointer; }
+
 .diag { display: grid; gap: 4px; margin: 8px 0; font-size: 14px; }
 .diag div { display: flex; justify-content: space-between; }
 .diag span { color: var(--muted); }

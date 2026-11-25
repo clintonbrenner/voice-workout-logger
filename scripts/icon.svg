@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Full-bleed background (iPhone rounds the corners itself) -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a1f2e"/>
+      <stop offset="1" stop-color="#0b0b0f"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- Barbell -->
+  <g fill="#9a9aa8">
+    <rect x="56" y="246" width="400" height="20" rx="10"/>
+    <rect x="70" y="196" width="34" height="120" rx="10"/>
+    <rect x="110" y="176" width="34" height="160" rx="10"/>
+    <rect x="368" y="176" width="34" height="160" rx="10"/>
+    <rect x="408" y="196" width="34" height="120" rx="10"/>
+  </g>
+  <!-- Microphone button in the middle -->
+  <circle cx="256" cy="256" r="112" fill="#2f80ff"/>
+  <g fill="#fff" transform="translate(256 256) scale(7.2) translate(-12 -12)">
+    <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z"/>
+  </g>
+</svg>

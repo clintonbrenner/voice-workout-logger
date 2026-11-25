@@ -272,17 +272,17 @@ export async function addSet(v: SetValues): Promise<LoggedSet> {
   return set;
 }
 
-export async function updateSet(id: string, v: SetValues): Promise<void> {
-  const apply = (s: LoggedSet) => (s.id === id ? { ...s, ...v, notes: v.notes ?? s.notes } : s);
+export async function updateSet(orig: LoggedSet, v: SetValues): Promise<void> {
+  const updated: LoggedSet = { ...orig, ...v, notes: v.notes ?? orig.notes, transcript: orig.transcript };
+  const apply = (s: LoggedSet) => (s.id === orig.id ? updated : s);
   state.sessionSets = state.sessionSets.map(apply);
   state.recentSets = state.recentSets.map(apply);
-  const updated = state.recentSets.find((s) => s.id === id) ?? state.sessionSets.find((s) => s.id === id);
-  if (updated) await db.saveSet(updated);
+  await db.saveSet(updated);
   changed();
 }
 
-export async function removeSet(id: string): Promise<LoggedSet | undefined> {
-  const s = state.recentSets.find((x) => x.id === id) ?? state.sessionSets.find((x) => x.id === id);
+export async function removeSet(id: string, known?: LoggedSet): Promise<LoggedSet | undefined> {
+  const s = known ?? state.recentSets.find((x) => x.id === id) ?? state.sessionSets.find((x) => x.id === id);
   await db.deleteSet(id);
   state.sessionSets = state.sessionSets.filter((x) => x.id !== id);
   state.recentSets = state.recentSets.filter((x) => x.id !== id);

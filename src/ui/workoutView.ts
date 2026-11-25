@@ -6,7 +6,7 @@
  */
 import { h, mount, $ } from './dom';
 import { openEditSheet } from './editSheet';
-import { haptic, keepScreenAwake, warmUpMic } from '../device';
+import { haptic, isStandalone, keepScreenAwake, warmUpMic } from '../device';
 import { formatSet, formatTarget, type LoggedSet } from '../models';
 import * as store from '../store';
 import { state } from '../store';
@@ -38,12 +38,29 @@ export function renderWorkout(): void {
   const list = store.menuExercises();
   mount(
     $('exercise-list'),
+    installCard(),
     list.length === 0
       ? h('p', { class: 'empty' }, 'No exercises yet. Go to the Plan tab to import your workout.')
       : list.map((ex) => exerciseCard(ex.name, ex.sets ? formatTarget(ex) : 'Extra exercise', ex.sets, ex.restSecMin, ex.restSecMax)),
   );
 
   renderConfirm();
+}
+
+/** Shown in a normal browser tab: how to install the app on the Home Screen. */
+function installCard() {
+  if (isStandalone || localStorage.getItem('liftlog.hideInstall') === '1') return null;
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  return h('section', { class: 'panel install' },
+    h('b', null, 'Install Lift Log on your Home Screen'),
+    ios
+      ? h('ol', { class: 'small' },
+          h('li', null, 'Tap the Share button (square with an arrow) in Safari.'),
+          h('li', null, 'Scroll down and tap “Add to Home Screen”.'),
+          h('li', null, 'Tap Add, then open Lift Log from its icon.'))
+      : h('p', { class: 'small muted' }, 'Use your browser menu → “Install app” or “Add to Home screen”.'),
+    h('p', { class: 'small muted' }, 'It then opens full-screen and works offline. Your data stays on this device.'),
+    h('button', { class: 'btn small', type: 'button', onclick: () => { localStorage.setItem('liftlog.hideInstall', '1'); renderWorkout(); } }, 'Got it'));
 }
 
 function exerciseCard(name: string, target: string, targetSets: number, restMin?: number, restMax?: number) {
@@ -155,9 +172,9 @@ export function editSet(s: LoggedSet): void {
     title: 'Edit set',
     values: { exercise: s.exercise, weightLb: s.weightLb, reps: s.reps, bodyweight: s.bodyweight, notes: s.notes },
     exercises: exerciseChoices(),
-    onSave: (v) => void store.updateSet(s.id, v),
+    onSave: (v) => void store.updateSet(s, v),
     onDelete: async () => {
-      const removed = await store.removeSet(s.id);
+      const removed = await store.removeSet(s.id, s);
       if (removed) showToast('Set deleted', () => void store.restoreSet(removed));
     },
   });
