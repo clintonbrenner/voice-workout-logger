@@ -63,6 +63,40 @@ export async function warmUpMic(): Promise<boolean> {
   }
 }
 
+/**
+ * Listens for a few seconds and reports the loudest sound level (0–100).
+ * Near 0 means no sound is reaching the app (mic busy, blocked, or routed to
+ * disconnected headphones). `onLevel` gets live updates for a meter.
+ */
+export async function testMicLevel(seconds: number, onLevel: (pct: number) => void): Promise<number> {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const ctx = new Ctx();
+  try {
+    await ctx.resume();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    let peak = 0;
+    const end = performance.now() + seconds * 1000;
+    while (performance.now() < end) {
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += v * v;
+      // RMS → rough 0–100 scale (normal speech up close lands around 30–80)
+      const pct = Math.min(100, Math.round(Math.sqrt(sum / buf.length) * 400));
+      peak = Math.max(peak, pct);
+      onLevel(pct);
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    return peak;
+  } finally {
+    stream.getTracks().forEach((t) => t.stop());
+    void ctx.close();
+  }
+}
+
 export const isStandalone =
   window.matchMedia('(display-mode: standalone)').matches ||
   (navigator as unknown as { standalone?: boolean }).standalone === true;

@@ -7,7 +7,7 @@
  *   - settings + diagnostics
  */
 import { h, mount, $ } from './dom';
-import { haptic, isStandalone } from '../device';
+import { haptic, isStandalone, testMicLevel } from '../device';
 import type { PlannedExercise } from '../models';
 import { importPlan, AI_PROMPT, FORMAT_EXAMPLE, type ImportedDay } from '../plan/importPlan';
 import * as store from '../store';
@@ -257,17 +257,43 @@ function settingsSection() {
     h('div', { class: 'setting' }, h('div', null, 'Record button'),
       segmented<'hold' | 'toggle'>([['hold', 'Hold to talk'], ['toggle', 'Tap start / stop']], s.recordMode, (v) => store.saveSettings({ recordMode: v }))),
     h('div', { class: 'setting' }, h('div', null, 'Auto-save a clear result after'),
-      segmented<number>([[0, 'Never'], [3, '3 s'], [4, '4 s'], [6, '6 s']], s.autoAcceptSec, (v) => store.saveSettings({ autoAcceptSec: v }))),
-  );
+      segmented<number>([[0, 'Never'], [3, '3 s'], [4, '4 s'], [6, '6 s']], s.autoAcceptSec, (v) => store.saveSettings({ autoAcceptSec: v }))),  );
+}
+
+let diagOpen = false;
+
+/** Mic level test: shows a live meter, then a verdict. */
+async function runMicTest(meter: HTMLElement, result: HTMLElement, btn: HTMLButtonElement): Promise<void> {
+  btn.disabled = true;
+  result.textContent = 'Say something for 3 seconds…';
+  try {
+    const peak = await testMicLevel(3, (pct) => (meter.style.width = `${pct}%`));
+    meter.style.width = '0%';
+    const verdict = peak >= 15 ? 'Mic is working ✓' : peak >= 4 ? 'Very quiet — speak up or move the phone closer' : 'No sound reaching the app ✗';
+    result.textContent = `Loudest: ${peak}/100 — ${verdict}`;
+    log(`mic test: peak ${peak}`);
+  } catch (e) {
+    result.textContent = `Mic test failed: ${(e as Error).name} — ${(e as Error).message}`;
+    log(`mic test failed: ${(e as Error).message}`);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function diagnosticsSection() {
   const safari = navigator.userAgent.match(/Version\/(\d+(?:\.\d+)?)/)?.[1] ?? 'hidden by iOS';
   const speech = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+  const meter = h('div', { class: 'meter-fill' });
+  const result = h('div', { class: 'small' }, 'Checks that sound is reaching the app.');
+  const btn: HTMLButtonElement = h('button', {
+    class: 'btn small', type: 'button',
+    onclick: () => void runMicTest(meter, result, btn),
+  }, 'Test microphone');
   return h(
     'details',
-    { class: 'panel' },
+    { class: 'panel', open: diagOpen, ontoggle: (e: Event) => (diagOpen = (e.target as HTMLDetailsElement).open) },
     h('summary', null, 'Diagnostics'),
+    h('div', { class: 'mic-test' }, btn, h('div', { class: 'meter' }, meter), result),
     h('div', { class: 'diag' },
       [
         ['App version', __APP_VERSION__],

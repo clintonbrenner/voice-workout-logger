@@ -68,14 +68,53 @@ function updateRecordLabel(): void {
   recordBtn.setAttribute('aria-label', state.settings.recordMode === 'hold' ? 'Hold to record' : 'Tap to record');
 }
 
+/*
+ * Safari's recognizer needs a moment (often ~0.5 s) after you press before it
+ * actually hears anything. So the button goes AMBER ("starting") on press and
+ * only turns RED once the mic is really live — speak when it's red.
+ * If you let go before it's live, we keep listening briefly anyway.
+ */
+let micLive = false;
+let stopWhenLive = false;
+let stopTimer: number | undefined;
+/** How long to keep listening after you let go, so the last word isn't cut off. */
+const TAIL_MS = 600;
+/** If you let go before the mic was live, listen at least this long once it is. */
+const MIN_AFTER_LIVE_MS = 1500;
+
+let liveFallback: number | undefined;
+
+/** The mic is really listening now: turn the button red. */
+function goLive(): void {
+  clearTimeout(liveFallback);
+  if (micLive || !recordBtn.classList.contains('starting')) return;
+  micLive = true;
+  recordBtn.classList.remove('starting');
+  recordBtn.classList.add('rec');
+  if (recording) live.textContent = 'Listening — speak now';
+  haptic();
+  if (stopWhenLive) {
+    stopWhenLive = false;
+    clearTimeout(stopTimer);
+    stopTimer = window.setTimeout(() => engine.stop(), MIN_AFTER_LIVE_MS);
+  }
+}
+
 engine.handlers = {
-  onEvent: (name) => log(`speech: ${name}`),
-  onInterim: (text) => (live.textContent = text || 'Listening…'),
+  onEvent: (name) => {
+    log(`speech: ${name}`);
+    // "audiostart" = sound is flowing. Some iOS versions skip it, so "start" + a short wait also counts.
+    if (name === 'audiostart') goLive();
+    else if (name === 'start') liveFallback = window.setTimeout(goLive, 400);
+  },
+  onInterim: (text) => (live.textContent = text || 'Listening — speak now'),
   onFinal: (text) => {
-    recordBtn.classList.remove('busy');
+    recordBtn.classList.remove('busy', 'starting', 'rec');
+    micLive = false;
+    stopWhenLive = false;
     log(`heard: ${text || '<nothing>'}`);
     if (!text) {
-      live.textContent = "Didn't catch that — try again";
+      live.textContent = "Didn't catch that — wait for red, then speak";
       return;
     }
     const parsed = parseSet(text, store.parseContext());
@@ -87,7 +126,10 @@ engine.handlers = {
   onError: (code, message) => {
     log(`ERROR ${code}: ${message}`);
     recording = false;
-    recordBtn.classList.remove('rec', 'busy');
+    micLive = false;
+    stopWhenLive = false;
+    clearTimeout(stopTimer);
+    recordBtn.classList.remove('rec', 'busy', 'starting');
     live.textContent =
       code === 'not-allowed' || code === 'service-not-allowed'
         ? 'Mic or dictation blocked — check Settings → Safari → Microphone, and that Dictation is on.'
@@ -104,9 +146,12 @@ function startRecording(): void {
     if (store.isComplete(state.pending)) void acceptPending();
     else store.setPending(null);
   }
-  recordBtn.classList.add('rec');
-  recordBtn.classList.remove('busy');
-  live.textContent = 'Listening…';
+  micLive = false;
+  stopWhenLive = false;
+  clearTimeout(stopTimer);
+  recordBtn.classList.remove('busy', 'rec');
+  recordBtn.classList.add('starting'); // amber until the mic is really live
+  live.textContent = 'Starting mic…';
   haptic();
   engine.start(); // must run right inside the touch handler on iOS
   // Starting to log counts as starting the workout.
@@ -116,11 +161,19 @@ function startRecording(): void {
 function stopRecording(): void {
   if (!recording) return;
   recording = false;
-  recordBtn.classList.remove('rec');
-  recordBtn.classList.add('busy');
   live.textContent = 'Processing…';
   haptic();
-  setTimeout(() => engine.stop(), 250); // let Safari catch the last word
+  if (micLive) {
+    recordBtn.classList.remove('rec');
+    recordBtn.classList.add('busy');
+    stopTimer = window.setTimeout(() => engine.stop(), TAIL_MS); // let Safari catch the last word
+  } else {
+    // Let go before the mic was live: keep going a little once it is.
+    stopWhenLive = true;
+    live.textContent = 'Still listening…';
+    // Safety net: if the mic never comes on, don't hang forever.
+    stopTimer = window.setTimeout(() => engine.stop(), 4000);
+  }
 }
 
 recordBtn.addEventListener('pointerdown', (e) => {
