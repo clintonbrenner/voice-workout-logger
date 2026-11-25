@@ -266,12 +266,13 @@ let diagOpen = false;
 async function runMicTest(meter: HTMLElement, result: HTMLElement, btn: HTMLButtonElement): Promise<void> {
   btn.disabled = true;
   result.textContent = 'Say something for 3 seconds…';
+  // (testMicLevel must be called right away, inside the tap — no waiting before it)
   try {
-    const peak = await testMicLevel(3, (pct) => (meter.style.width = `${pct}%`));
+    const { peak, device, detail } = await testMicLevel(3, (pct) => (meter.style.width = `${pct}%`));
     meter.style.width = '0%';
     const verdict = peak >= 15 ? 'Mic is working ✓' : peak >= 4 ? 'Very quiet — speak up or move the phone closer' : 'No sound reaching the app ✗';
-    result.textContent = `Loudest: ${peak}/100 — ${verdict}`;
-    log(`mic test: peak ${peak}`);
+    result.textContent = `Loudest: ${peak}/100 — ${verdict} (mic: ${device})`;
+    log(`mic test: peak ${peak}, mic "${device}", ${detail}`);
   } catch (e) {
     result.textContent = `Mic test failed: ${(e as Error).name} — ${(e as Error).message}`;
     log(`mic test failed: ${(e as Error).message}`);

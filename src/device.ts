@@ -7,8 +7,20 @@
 // Android: navigator.vibrate. iPhone Safari ignores that, but since iOS 18 tapping a
 // "switch" checkbox gives a tiny haptic click — so we keep a hidden one and tap it.
 let hapticLabel: HTMLLabelElement | null = null;
+let micOn = false;
+
+/**
+ * While the mic is recording, haptics are switched off: on iPhone a haptic tick
+ * during recording can interrupt the microphone ("aborted"). This also disables
+ * the invisible haptic switches under buttons (via the body class).
+ */
+export function setMicOn(on: boolean): void {
+  micOn = on;
+  document.body.classList.toggle('mic-on', on);
+}
 
 export function haptic(): void {
+  if (micOn) return;
   try {
     if (navigator.vibrate?.(15)) return;
   } catch {
@@ -68,12 +80,24 @@ export async function warmUpMic(): Promise<boolean> {
  * Near 0 means no sound is reaching the app (mic busy, blocked, or routed to
  * disconnected headphones). `onLevel` gets live updates for a meter.
  */
-export async function testMicLevel(seconds: number, onLevel: (pct: number) => void): Promise<number> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+export interface MicTestResult {
+  peak: number;
+  /** Which microphone iOS used, e.g. "iPhone Microphone" or "AirPods". */
+  device: string;
+  /** Extra detail for the log. */
+  detail: string;
+}
+
+export async function testMicLevel(seconds: number, onLevel: (pct: number) => void): Promise<MicTestResult> {
+  // iPhone only lets audio processing start straight from a tap, so create and
+  // resume the audio context BEFORE waiting for the microphone.
   const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   const ctx = new Ctx();
+  const resumed = ctx.resume();
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const track = stream.getAudioTracks()[0];
   try {
-    await ctx.resume();
+    await resumed;
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
     ctx.createMediaStreamSource(stream).connect(analyser);
@@ -90,7 +114,11 @@ export async function testMicLevel(seconds: number, onLevel: (pct: number) => vo
       onLevel(pct);
       await new Promise((r) => setTimeout(r, 60));
     }
-    return peak;
+    return {
+      peak,
+      device: track?.label || 'unknown',
+      detail: `audio=${ctx.state} track=${track?.readyState}${track?.muted ? ' MUTED' : ''} enabled=${track?.enabled}`,
+    };
   } finally {
     stream.getTracks().forEach((t) => t.stop());
     void ctx.close();

@@ -9,7 +9,7 @@ import './style.css';
 import { $, addHapticLayer } from './ui/dom';
 import { WebSpeechEngine } from './speech/webSpeech';
 import { parseSet } from './parser';
-import { haptic, keepScreenAwake } from './device';
+import { haptic, keepScreenAwake, setMicOn } from './device';
 import * as store from './store';
 import { state, type Tab } from './store';
 import { renderWorkout, acceptPending, armAutoAccept, clearAutoAccept, renderConfirm, showToast } from './ui/workoutView';
@@ -83,6 +83,7 @@ const TAIL_MS = 600;
 const MIN_AFTER_LIVE_MS = 1500;
 
 let liveFallback: number | undefined;
+let pressedAt = 0;
 
 /** The mic is really listening now: turn the button red. */
 function goLive(): void {
@@ -92,7 +93,7 @@ function goLive(): void {
   recordBtn.classList.remove('starting');
   recordBtn.classList.add('rec');
   if (recording) live.textContent = 'Listening — speak now';
-  haptic();
+  // (no haptic here: a vibration while recording can cut the mic off on iPhone)
   if (stopWhenLive) {
     stopWhenLive = false;
     clearTimeout(stopTimer);
@@ -102,13 +103,18 @@ function goLive(): void {
 
 engine.handlers = {
   onEvent: (name) => {
-    log(`speech: ${name}`);
+    // For errors, note how long after pressing it happened and whether the app was on screen.
+    const extra = name.startsWith('error')
+      ? ` (${Math.round(performance.now() - pressedAt)} ms after press, button ${recording ? 'held' : 'released'}, ${document.visibilityState})`
+      : '';
+    log(`speech: ${name}${extra}`);
     // "audiostart" = sound is flowing. Some iOS versions skip it, so "start" + a short wait also counts.
     if (name === 'audiostart') goLive();
     else if (name === 'start') liveFallback = window.setTimeout(goLive, 400);
   },
   onInterim: (text) => (live.textContent = text || 'Listening — speak now'),
   onFinal: (text) => {
+    setMicOn(false);
     recordBtn.classList.remove('busy', 'starting', 'rec');
     micLive = false;
     stopWhenLive = false;
@@ -117,6 +123,7 @@ engine.handlers = {
       live.textContent = "Didn't catch that — wait for red, then speak";
       return;
     }
+    haptic();
     const parsed = parseSet(text, store.parseContext());
     log(`parsed: ${JSON.stringify({ ex: parsed.exercise, w: parsed.weightLb, r: parsed.reps, unsure: parsed.uncertain })}`);
     store.setPending(parsed);
@@ -124,6 +131,7 @@ engine.handlers = {
     updateRecordLabel();
   },
   onError: (code, message) => {
+    setMicOn(false);
     log(`ERROR ${code}: ${message}`);
     recording = false;
     micLive = false;
@@ -140,6 +148,9 @@ engine.handlers = {
 function startRecording(): void {
   if (recording) return;
   recording = true;
+  // Haptics off from here until the clip is done (they can interrupt the mic).
+  setMicOn(true);
+  pressedAt = performance.now();
   clearAutoAccept();
   // A finished result is still on the card? Save it before the next one.
   if (state.pending) {
@@ -152,7 +163,6 @@ function startRecording(): void {
   recordBtn.classList.remove('busy', 'rec');
   recordBtn.classList.add('starting'); // amber until the mic is really live
   live.textContent = 'Starting mic…';
-  haptic();
   engine.start(); // must run right inside the touch handler on iOS
   // Starting to log counts as starting the workout.
   if (!state.session) void store.startSession().then(() => keepScreenAwake(true));
@@ -161,8 +171,8 @@ function startRecording(): void {
 function stopRecording(): void {
   if (!recording) return;
   recording = false;
+  log(`button released after ${Math.round(performance.now() - pressedAt)} ms`);
   live.textContent = 'Processing…';
-  haptic();
   if (micLive) {
     recordBtn.classList.remove('rec');
     recordBtn.classList.add('busy');
