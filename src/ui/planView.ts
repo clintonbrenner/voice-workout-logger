@@ -288,9 +288,12 @@ async function runOnDeviceTest(btn: HTMLButtonElement, out: HTMLElement): Promis
       return;
     }
     // Recording must start right inside the tap (iPhone rule).
+    const heard = new Promise<void>((r) => (recorder.onSound = r));
     const started = recorder.start();
-    out.textContent = 'Starting mic…';
+    out.textContent = 'Starting mic… (wait for the countdown)';
     await started;
+    // AirPods can take a moment to switch their mic on — wait for real sound (max 3 s).
+    await Promise.race([heard, new Promise((r) => setTimeout(r, 3000))]);
     for (let s = 4; s > 0; s--) {
       out.textContent = `Recording — say a set now… ${s}`;
       await new Promise((r) => setTimeout(r, 1000));
@@ -301,7 +304,7 @@ async function runOnDeviceTest(btn: HTMLButtonElement, out: HTMLElement): Promis
     const p = parseSet(text, store.parseContext());
     const set = p.exercise ? `${p.exercise}: ${p.weightLb ?? '?'} lb × ${p.reps ?? '?'}` : 'no set found';
     out.textContent = `Heard: “${text || '(nothing)'}” in ${(ms / 1000).toFixed(1)} s → ${set}`;
-    log(`on-device: "${text}" in ${ms} ms (${modelStatus.device}, mic "${recorder.device}")`);
+    log(`on-device test: "${text}" in ${ms} ms, loudest ${recorder.peak}/100, mic live after ${recorder.soundAfterMs} ms ("${recorder.device}")`);
   } catch (e) {
     out.textContent = `On-device test failed: ${(e as Error).message}`;
     log(`on-device failed: ${(e as Error).message}`);

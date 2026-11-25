@@ -99,12 +99,22 @@ export class ClipRecorder {
   private chunks: Float32Array[] = [];
   /** Which microphone is being used (e.g. "AirPods"). */
   device = '';
+  /** Called once, when real sound (not silence) first arrives from the mic. */
+  onSound: (() => void) | null = null;
+  private startedAt = 0;
+  /** ms from pressing until real sound arrived (AirPods can take a while to switch). */
+  soundAfterMs = -1;
+  /** Loudest moment of the clip, 0–100. */
+  peak = 0;
 
   async start(): Promise<void> {
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     this.ctx = new Ctx();
     const resumed = this.ctx.resume(); // during the tap — before any waiting
     this.chunks = [];
+    this.startedAt = performance.now();
+    this.soundAfterMs = -1;
+    this.peak = 0;
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
@@ -113,7 +123,25 @@ export class ClipRecorder {
     const source = this.ctx.createMediaStreamSource(this.stream);
     // ScriptProcessor is old but works everywhere, including Safari.
     this.node = this.ctx.createScriptProcessor(4096, 1, 1);
-    this.node.onaudioprocess = (e) => this.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    this.node.onaudioprocess = (e) => {
+      const data = e.inputBuffer.getChannelData(0);
+      let max = 0;
+      let sum = 0;
+      for (const v of data) {
+        const a = Math.abs(v);
+        if (a > max) max = a;
+        sum += v * v;
+      }
+      if (this.soundAfterMs < 0) {
+        // While Bluetooth headphones switch into "call mode" the mic delivers pure
+        // silence. Skip that, and only count the mic as live once real sound arrives.
+        if (max < 1e-4) return;
+        this.soundAfterMs = Math.round(performance.now() - this.startedAt);
+        this.onSound?.();
+      }
+      this.peak = Math.max(this.peak, Math.min(100, Math.round(Math.sqrt(sum / data.length) * 400)));
+      this.chunks.push(new Float32Array(data));
+    };
     const mute = this.ctx.createGain();
     mute.gain.value = 0; // must be connected to the speakers to run, but silently
     source.connect(this.node);
@@ -203,13 +231,24 @@ export class OnDeviceEngine implements SpeechEngine {
     this.cancelled = false;
     this.recording = true;
     this.handlers.onEvent?.('on-device: recording');
+    let live = false;
+    const goLive = (note?: string) => {
+      if (live || !this.recording) return;
+      live = true;
+      if (note) this.handlers.onEvent?.(note);
+      this.handlers.onEvent?.('audiostart'); // mic really live → button turns red
+      void this.livePreview();
+    };
+    // Red only once real sound arrives (AirPods may need a moment to switch over).
+    this.rec.onSound = () => goLive(`on-device: mic live after ${this.rec.soundAfterMs} ms (${this.rec.device || 'mic'})`);
     this.rec
       .start()
       .then(() => {
         if (!this.recording) return;
-        this.handlers.onEvent?.('start');
-        this.handlers.onEvent?.('audiostart'); // mic is live → button turns red
-        void this.livePreview();
+        // (Deliberately not sending "start": the app treats that as "live soon" for Safari.)
+        this.handlers.onEvent?.('on-device: mic opened, waiting for sound');
+        // Safety net: if the mic only gives silence for 3 s, go red anyway so you're not stuck.
+        setTimeout(() => goLive('on-device: mic still silent after 3 s'), 3000);
       })
       .catch((e: Error) => {
         this.recording = false;
@@ -244,11 +283,17 @@ export class OnDeviceEngine implements SpeechEngine {
       try {
         const audio = await this.rec.stop();
         if (this.cancelled) return;
-        if (audio.length < 16000 * 0.3) {
-          this.handlers.onFinal?.(''); // under 0.3 s: nothing said
+        const secs = (audio.length / 16000).toFixed(1);
+        const { peak, soundAfterMs, device } = this.rec;
+        this.handlers.onEvent?.(
+          `on-device: clip ${secs} s, loudest ${peak}/100, mic ${soundAfterMs < 0 ? 'NEVER gave sound' : `live after ${soundAfterMs} ms`} (${device || 'mic'})`,
+        );
+        if (audio.length < 16000 * 0.3 || peak < 3) {
+          // Nothing (or only silence) came through — don't let the model guess.
+          this.handlers.onEvent?.('on-device: clip was silent — skipped');
+          this.handlers.onFinal?.('');
           return;
         }
-        this.handlers.onEvent?.(`on-device: transcribing ${(audio.length / 16000).toFixed(1)} s`);
         const { text, ms } = await transcribe(audio);
         this.handlers.onEvent?.(`on-device: done in ${ms} ms`);
         if (!this.cancelled) this.handlers.onFinal?.(text);
