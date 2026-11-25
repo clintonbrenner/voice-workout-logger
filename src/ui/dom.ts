@@ -39,7 +39,8 @@ export function h<K extends keyof HTMLElementTagNameMap>(
  */
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || localStorage.getItem('liftlog.forceHaptics') === '1';
 
-function addHapticLayer(button: HTMLButtonElement): void {
+export function addHapticLayer(button: HTMLButtonElement): void {
+  if (!IOS || button.querySelector('.hap')) return;
   const label = document.createElement('label');
   label.className = 'hap';
   label.ariaHidden = 'true';

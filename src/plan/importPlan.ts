@@ -302,15 +302,18 @@ export function importPlan(text: string): ImportedDay[] {
   return days.filter((d) => d.exercises.length > 0);
 }
 
-/** Paste this into ChatGPT to get plans in a format that imports perfectly. */
-export const CHATGPT_PROMPT = `Please format my workout plan as plain text exactly like this, with no tables and no extra commentary:
-
-Day 1 - Push
+/** The format shown on the Plan tab (and used in the AI prompt). */
+export const FORMAT_EXAMPLE = `Day 1 - Push
 Bench Press: 4 x 6-8 @ 185 lb, rest 120 sec
 Incline Dumbbell Press: 3 x 8-10, rest 90 sec
 Lateral Raise: 3 x 12-15
 
 Day 2 - Pull
-Deadlift: 3 x 5 @ 315 lb, rest 180 sec
+Deadlift: 3 x 5 @ 315 lb, rest 180 sec`;
+
+/** Paste this into ChatGPT/Claude to get plans in a format that imports perfectly. */
+export const AI_PROMPT = `Please format my workout plan as plain text exactly like this, with no tables and no extra commentary:
+
+${FORMAT_EXAMPLE}
 
 Rules: one exercise per line, "sets x reps" (a rep range like 8-12 is fine), add "@ weight lb" only if there is a target weight, and start each workout day with its own header line.`;

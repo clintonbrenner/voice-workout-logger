@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { importPlan, CHATGPT_PROMPT } from '../../src/plan/importPlan';
+import { importPlan, AI_PROMPT, FORMAT_EXAMPLE } from '../../src/plan/importPlan';
 import armsText from '../fixtures/plan-arms.txt?raw';
 
 describe('your Arms plan (pasted from ChatGPT)', () => {
@@ -110,9 +110,9 @@ Sets: 3, Reps: 15
     expect(days[0].exercises[0]).toMatchObject({ sets: 3, repsMin: 10 });
   });
 
-  it('the ChatGPT prompt example imports cleanly', () => {
-    const example = CHATGPT_PROMPT.split('\n').slice(2, 10).join('\n');
-    const days = importPlan(example);
+  it('the format shown in the app imports cleanly (and is in the AI prompt)', () => {
+    expect(AI_PROMPT).toContain(FORMAT_EXAMPLE);
+    const days = importPlan(FORMAT_EXAMPLE);
     expect(days.map((d) => d.name)).toEqual(['Day 1 - Push', 'Day 2 - Pull']);
     expect(days[0].exercises[0]).toEqual({
       name: 'Bench Press', sets: 4, repsMin: 6, repsMax: 8, targetWeightLb: 185, restSecMin: 120, restSecMax: 120,

@@ -6,7 +6,7 @@
  *   → confirmation card → auto-saves after a few seconds (or tap Save/Edit/Undo)
  */
 import './style.css';
-import { $ } from './ui/dom';
+import { $, addHapticLayer } from './ui/dom';
 import { WebSpeechEngine } from './speech/webSpeech';
 import { parseSet } from './parser';
 import { haptic, keepScreenAwake } from './device';
@@ -21,6 +21,8 @@ import { renderProgress } from './ui/progressView';
 // Tabs
 // ---------------------------------------------------------------------------
 const tabs = $('tabs');
+// The tab buttons are written in index.html, so give them the iPhone haptic tick here.
+tabs.querySelectorAll('button').forEach((b) => addHapticLayer(b));
 tabs.addEventListener('click', (e) => {
   const tab = (e.target as HTMLElement).closest('button')?.dataset.tab as Tab | undefined;
   if (tab) {

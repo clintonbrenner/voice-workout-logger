@@ -9,7 +9,7 @@
 import { h, mount, $ } from './dom';
 import { haptic, isStandalone } from '../device';
 import type { PlannedExercise } from '../models';
-import { importPlan, CHATGPT_PROMPT, type ImportedDay } from '../plan/importPlan';
+import { importPlan, AI_PROMPT, FORMAT_EXAMPLE, type ImportedDay } from '../plan/importPlan';
 import * as store from '../store';
 import { state } from '../store';
 import { DEFAULT_EXERCISES } from '../parser';
@@ -21,7 +21,6 @@ interface DraftDay extends ImportedDay {
 }
 let draft: DraftDay[] | null = null;
 let pasteText = '';
-let showTextBox = false;
 let aliasExercise = '';
 let aliasText = '';
 
@@ -70,10 +69,10 @@ function workoutsSection() {
 // Import
 // ---------------------------------------------------------------------------
 function startReview(text: string): void {
+  if (!text.trim()) return showToast('Enter or paste your workout first.');
   const days = importPlan(text);
   if (days.length === 0) {
-    showToast("Couldn't find any exercises in that text.");
-    showTextBox = true;
+    showToast("Couldn't find any exercises — check it matches the format above.");
     pasteText = text;
     renderPlan();
     return;
@@ -87,12 +86,9 @@ function startReview(text: string): void {
 async function pasteFromClipboard(): Promise<void> {
   try {
     const text = await navigator.clipboard.readText();
-    if (!text.trim()) return showToast('Clipboard is empty — copy your plan first.');
+    if (!text.trim()) return showToast('Clipboard is empty — copy your workout first.');
     startReview(text);
   } catch {
-    // Clipboard blocked: fall back to the text box (long-press → Paste).
-    showTextBox = true;
-    renderPlan();
     showToast('Long-press the box and tap Paste.');
   }
 }
@@ -102,43 +98,27 @@ function importSection() {
     'section',
     { class: 'panel' },
     h('h2', null, 'Import a plan'),
-    h('p', { class: 'muted' }, 'Copy your plan in ChatGPT (or anywhere), then tap:'),
-    h('button', { class: 'btn primary huge', type: 'button', onclick: () => void pasteFromClipboard() }, '📋 Paste plan'),
-    h(
-      'div',
-      { class: 'row' },
-      h('button', {
-        class: 'btn', type: 'button',
-        onclick: async () => {
-          try {
-            await navigator.clipboard.writeText(CHATGPT_PROMPT);
-            showToast('Prompt copied — paste it into ChatGPT with your plan.');
-          } catch {
-            showToast("Couldn't copy. Try again.");
-          }
-        },
-      }, 'Copy ChatGPT prompt'),
-      h('label', { class: 'btn file-btn' }, 'Open file…', h('input', {
-        type: 'file', accept: '.txt,.md,.csv,text/plain,text/markdown',
-        onchange: async (e: Event) => {
-          const f = (e.target as HTMLInputElement).files?.[0];
-          if (f) startReview(await f.text());
-        },
-      })),
-      h('button', { class: 'btn', type: 'button', onclick: () => { showTextBox = !showTextBox; renderPlan(); } }, showTextBox ? 'Hide text box' : 'Type / paste'),
+    h('p', { class: 'muted' }, 'Enter workout here, in the following format:'),
+    h('pre', { class: 'format-example' }, FORMAT_EXAMPLE),
+    h('textarea', {
+      class: 'paste-box', rows: 6, placeholder: 'Type or paste your workout…', value: pasteText,
+      oninput: (e: Event) => (pasteText = (e.target as HTMLTextAreaElement).value),
+    }),
+    h('div', { class: 'grid2' },
+      h('button', { class: 'btn', type: 'button', onclick: () => void pasteFromClipboard() }, '📋 Paste'),
+      h('button', { class: 'btn primary', type: 'button', onclick: () => startReview(pasteText) }, 'Import'),
     ),
-    showTextBox
-      ? h(
-          'div',
-          null,
-          h('textarea', {
-            class: 'paste-box', rows: 8, placeholder: 'Paste or type your plan here…', value: pasteText,
-            oninput: (e: Event) => (pasteText = (e.target as HTMLTextAreaElement).value),
-            onpaste: () => setTimeout(() => pasteText.trim() && startReview(pasteText), 50),
-          }),
-          h('button', { class: 'btn primary', type: 'button', onclick: () => startReview(pasteText) }, 'Read plan'),
-        )
-      : null,
+    h('button', {
+      class: 'btn full', type: 'button',
+      onclick: async () => {
+        try {
+          await navigator.clipboard.writeText(AI_PROMPT);
+          showToast('Copied — paste it into ChatGPT or Claude along with your plan.');
+        } catch {
+          showToast("Couldn't copy. Try again.");
+        }
+      },
+    }, 'Copy AI prompt'),
   );
 }
 
@@ -207,7 +187,6 @@ function reviewEditor() {
           if (!clean.length) return showToast('Nothing to save.');
           draft = null;
           pasteText = '';
-          showTextBox = false;
           await store.saveWorkouts(clean);
           haptic();
           showToast(`Saved ${clean.length} workout${clean.length > 1 ? 's' : ''}`);

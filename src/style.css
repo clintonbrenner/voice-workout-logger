@@ -298,6 +298,18 @@ h2 { font-size: 20px; margin: 0 0 10px; }
 .plan-row.active b { color: var(--accent); }
 .plan-row-main { flex: 1; min-width: 0; }
 .paste-box { margin: 8px 0; resize: vertical; }
+.format-example {
+  margin: 6px 0 4px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 10px;
+  color: var(--muted);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.btn.full { width: 100%; }
 .review-day { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
 .day-name { font-size: 19px; font-weight: 700; }
 .review-ex { background: var(--bg); border-radius: 12px; padding: 10px; margin: 8px 0; }
