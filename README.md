@@ -2,8 +2,22 @@
 
 A phone-first web app. Hold the big button, say "bench, 185, 8 reps", and it logs the set.
 
-**Current state: Milestone 1 spike.** It's one page with a giant record button. It shows what the
-phone heard and a panel listing what your iPhone supports.
+**Live app:** https://clintonbrenner.github.io/voice-workout-logger/
+
+**Current state: Milestone 3.** Workout tab (exercise menu, voice logging with a confirmation
+card, Edit/Undo, manual add), Plan tab (one-tap paste import, review, nicknames, settings).
+Everything is stored on your phone. History/export and Progress charts come next.
+
+Every `git push` to `main` runs the tests and republishes the site automatically.
+
+### Testing voice on a PC
+With `npm run dev` open in a browser, type this into the browser console to simulate speaking:
+`simulateVoice("hammer curls 30 for 12")`
+
+### Running the tests
+```powershell
+npm test
+```
 
 ---
 
