@@ -87,16 +87,60 @@ function transcribeNow(audio: Float32Array): Promise<{ text: string; ms: number 
 // ---------------------------------------------------------------------------
 const TARGET_RATE = 16000;
 
+/*
+ * ONE shared audio context for the whole app.
+ *
+ * iPhone only lets a page switch audio on during a *completed* tap (finger lifted),
+ * NOT when a finger first touches down — and the record button starts on touch-down
+ * because you hold it. So we switch audio on the first time you lift your finger
+ * anywhere in the app, and then keep it on. Every recording reuses it.
+ */
+let sharedCtx: AudioContext | null = null;
+
+function audioContext(): AudioContext {
+  if (!sharedCtx || sharedCtx.state === 'closed') {
+    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    sharedCtx = new Ctx();
+  }
+  return sharedCtx;
+}
+
+/** Switch audio on (only works during a real tap; harmless otherwise). */
+export function unlockAudio(): void {
+  try {
+    const ctx = audioContext();
+    if (ctx.state !== 'running') void ctx.resume().catch(() => {});
+  } catch {
+    /* no Web Audio here */
+  }
+}
+for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {
+  window.addEventListener(type, unlockAudio, { capture: true, passive: true });
+}
+
+export function audioUnlocked(): boolean {
+  return sharedCtx?.state === 'running';
+}
+
 /**
  * Records raw audio from the mic.
- * IMPORTANT on iPhone: call start() directly inside the tap handler, because the
- * audio context has to be created and resumed during the tap.
+ * Normally through the shared audio context (allows the live word preview).
+ * If audio isn't switched on yet (e.g. the very first press after opening the app),
+ * it falls back to the browser's built-in recorder, which needs no tap — that clip
+ * just has no live preview.
  */
 export class ClipRecorder {
   private ctx: AudioContext | null = null;
   private stream: MediaStream | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
   private node: ScriptProcessorNode | null = null;
+  private mute: GainNode | null = null;
   private chunks: Float32Array[] = [];
+  /** Backup path: the browser's MediaRecorder. */
+  private mediaRec: MediaRecorder | null = null;
+  private blobs: Blob[] = [];
+  /** 'live' = audio context (with preview), 'backup' = MediaRecorder. */
+  mode: 'live' | 'backup' = 'live';
   /** Which microphone is being used (e.g. "AirPods"). */
   device = '';
   /** Called once, when real sound (not silence) first arrives from the mic. */
@@ -108,21 +152,31 @@ export class ClipRecorder {
   peak = 0;
 
   async start(): Promise<void> {
-    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    this.ctx = new Ctx();
-    const resumed = this.ctx.resume(); // during the tap — before any waiting
+    const ctx = audioContext();
+    unlockAudio(); // works if this IS a real tap (e.g. the Diagnostics test button)
+    this.ctx = ctx;
     this.chunks = [];
+    this.blobs = [];
     this.startedAt = performance.now();
     this.soundAfterMs = -1;
     this.peak = 0;
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
-    await resumed;
     this.device = this.stream.getAudioTracks()[0]?.label ?? '';
-    const source = this.ctx.createMediaStreamSource(this.stream);
+    if (ctx.state !== 'running') {
+      // Give a pending resume a moment to land.
+      await Promise.race([ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 150))]);
+    }
+    if (ctx.state !== 'running' && typeof MediaRecorder !== 'undefined') {
+      this.startBackup(this.stream);
+      return;
+    }
+    this.mode = 'live';
+    const source = ctx.createMediaStreamSource(this.stream);
+    this.source = source;
     // ScriptProcessor is old but works everywhere, including Safari.
-    this.node = this.ctx.createScriptProcessor(4096, 1, 1);
+    this.node = ctx.createScriptProcessor(4096, 1, 1);
     this.node.onaudioprocess = (e) => {
       const data = e.inputBuffer.getChannelData(0);
       let max = 0;
@@ -142,20 +196,40 @@ export class ClipRecorder {
       this.peak = Math.max(this.peak, Math.min(100, Math.round(Math.sqrt(sum / data.length) * 400)));
       this.chunks.push(new Float32Array(data));
     };
-    const mute = this.ctx.createGain();
+    const mute = ctx.createGain();
     mute.gain.value = 0; // must be connected to the speakers to run, but silently
+    this.mute = mute;
     source.connect(this.node);
     this.node.connect(mute);
-    mute.connect(this.ctx.destination);
+    mute.connect(ctx.destination);
+  }
+
+  /** Backup recording with MediaRecorder (no tap needed, no live preview). */
+  private startBackup(stream: MediaStream): void {
+    this.mode = 'backup';
+    this.mediaRec = new MediaRecorder(stream);
+    this.mediaRec.ondataavailable = (e) => {
+      if (e.data.size) this.blobs.push(e.data);
+    };
+    this.mediaRec.start(250);
+    // We can't watch the sound level on this path; give Bluetooth a short moment, then go.
+    setTimeout(() => {
+      if (this.soundAfterMs < 0 && this.mediaRec) {
+        this.soundAfterMs = Math.round(performance.now() - this.startedAt);
+        this.onSound?.();
+      }
+    }, 300);
   }
 
   /** Everything recorded so far (16 kHz), without stopping — for the live preview. */
   snapshot(): Promise<Float32Array> {
+    if (this.mode === 'backup') return Promise.resolve(new Float32Array(0));
     return resample(this.joined(), this.ctx?.sampleRate ?? TARGET_RATE);
   }
 
-  /** Seconds recorded so far. */
+  /** Seconds recorded so far (0 on the backup path, which has no preview). */
   get seconds(): number {
+    if (this.mode === 'backup') return 0;
     const rate = this.ctx?.sampleRate ?? TARGET_RATE;
     return this.chunks.reduce((n, c) => n + c.length, 0) / rate;
   }
@@ -173,14 +247,40 @@ export class ClipRecorder {
 
   /** Stops recording and returns 16 kHz mono audio ready for the model. */
   async stop(): Promise<Float32Array> {
-    const ctx = this.ctx;
+    if (this.mode === 'backup' && this.mediaRec) {
+      const rec = this.mediaRec;
+      this.mediaRec = null;
+      await new Promise<void>((resolve) => {
+        rec.onstop = () => resolve();
+        if (rec.state !== 'inactive') rec.stop();
+        else resolve();
+      });
+      this.stream?.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+      if (!this.blobs.length) return new Float32Array(0);
+      const audio = await decodeFile(await new Blob(this.blobs, { type: rec.mimeType }).arrayBuffer());
+      // Work out loudness afterwards (couldn't watch it live on this path).
+      let sum = 0;
+      let peak = 0;
+      const win = 1600; // 0.1 s windows
+      for (let i = 0; i < audio.length; i += win) {
+        sum = 0;
+        const end = Math.min(audio.length, i + win);
+        for (let j = i; j < end; j++) sum += audio[j] * audio[j];
+        peak = Math.max(peak, Math.min(100, Math.round(Math.sqrt(sum / (end - i)) * 400)));
+      }
+      this.peak = peak;
+      return audio;
+    }
+    // Live path: unhook our nodes but keep the shared audio context running for next time.
+    this.source?.disconnect();
     this.node?.disconnect();
+    this.mute?.disconnect();
+    this.source = this.node = this.mute = null;
     this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = null;
     const raw = this.joined();
-    const rate = ctx?.sampleRate ?? TARGET_RATE;
-    void ctx?.close();
-    this.ctx = null;
-    return resample(raw, rate);
+    return resample(raw, this.ctx?.sampleRate ?? TARGET_RATE);
   }
 }
 
@@ -286,7 +386,7 @@ export class OnDeviceEngine implements SpeechEngine {
         const secs = (audio.length / 16000).toFixed(1);
         const { peak, soundAfterMs, device } = this.rec;
         this.handlers.onEvent?.(
-          `on-device: clip ${secs} s, loudest ${peak}/100, mic ${soundAfterMs < 0 ? 'NEVER gave sound' : `live after ${soundAfterMs} ms`} (${device || 'mic'})`,
+          `on-device: clip ${secs} s, loudest ${peak}/100, mic ${soundAfterMs < 0 ? 'NEVER gave sound' : `live after ${soundAfterMs} ms`} (${device || 'mic'}, ${this.rec.mode === 'live' ? 'audio unlocked' : 'backup recorder'})`,
         );
         if (audio.length < 16000 * 0.3 || peak < 3) {
           // Nothing (or only silence) came through — don't let the model guess.
