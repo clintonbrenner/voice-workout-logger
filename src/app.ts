@@ -8,13 +8,13 @@
 import './style.css';
 import { $ } from './ui/dom';
 import { WebSpeechEngine } from './speech/webSpeech';
-import { OnDeviceEngine, onDeviceChosen, loadModel } from './speech/onDevice';
+import { OnDeviceEngine, onDeviceChosen, loadModel, micUsedThisLoad } from './speech/onDevice';
 import type { SpeechEngine, SpeechHandlers } from './speech/types';
 import { parseSet } from './parser';
 import { haptic, keepScreenAwake, setMicOn } from './device';
 import * as store from './store';
 import { state, type Tab } from './store';
-import { renderWorkout, acceptPending, armAutoAccept, clearAutoAccept, renderConfirm, showToast } from './ui/workoutView';
+import { renderWorkout, acceptPending, armAutoAccept, clearAutoAccept, renderConfirm, showToast, openDictation } from './ui/workoutView';
 import { renderPlan, log } from './ui/planView';
 import { renderHistory } from './ui/historyView';
 import { renderProgress } from './ui/progressView';
@@ -121,6 +121,7 @@ const handlers: SpeechHandlers = {
     // "audiostart" = sound is flowing. Some iOS versions skip it, so "start" + a short wait also counts.
     if (name === 'audiostart') goLive();
     else if (name === 'start') liveFallback = window.setTimeout(goLive, 400);
+    else if (name === 'mic-dead') micStuck = true;
   },
   onInterim: (text) => (live.textContent = text || 'Listening — speak now'),
   onFinal: (text) => {
@@ -130,16 +131,83 @@ const handlers: SpeechHandlers = {
     stopWhenLive = false;
     log(`heard: ${text || '<nothing>'}`);
     if (!text) {
+      if (micStuck) {
+        micStuck = false;
+        resetMic('stuck mic');
+        return;
+      }
       live.textContent = "Didn't catch that — wait for red, then speak";
+      dictateBtn.hidden = false; // safety net: Apple's keyboard dictation
       return;
     }
-    haptic();
-    const parsed = parseSet(text, store.parseContext());
-    log(`parsed: ${JSON.stringify({ ex: parsed.exercise, w: parsed.weightLb, r: parsed.reps, unsure: parsed.uncertain })}`);
-    store.setPending(parsed);
-    armAutoAccept();
-    updateRecordLabel();
+    handleTranscript(text);
   },
+};
+
+/** Words → parsed set → confirmation card. Used by every way of speaking a set. */
+function handleTranscript(text: string): void {
+  dictateBtn.hidden = true;
+  haptic();
+  const parsed = parseSet(text, store.parseContext());
+  log(`parsed: ${JSON.stringify({ ex: parsed.exercise, w: parsed.weightLb, r: parsed.reps, unsure: parsed.uncertain })}`);
+  store.setPending(parsed);
+  armAutoAccept();
+  updateRecordLabel();
+}
+
+// ---------------------------------------------------------------------------
+// Stuck-microphone recovery
+// ---------------------------------------------------------------------------
+/*
+ * After you switch to another app (e.g. Music) and come back, iPhone sometimes
+ * hands web apps a "zombie" mic: the mic icon is on, but only silence arrives.
+ * Closing and reopening the app fixes it — so the app does that for you
+ * (a quick reload; everything is saved on the phone, so nothing is lost).
+ * Once it has happened, the app also refreshes itself whenever you come back
+ * from another app, so the next set works first time.
+ */
+let micStuck = false;
+const REFRESH_ON_RETURN = 'liftlog.refreshOnReturn';
+let hiddenAt = 0;
+
+function resetMic(reason: string): void {
+  log(`resetting microphone (${reason}) — reloading app`);
+  localStorage.setItem(REFRESH_ON_RETURN, '1');
+  sessionStorage.setItem('liftlog.justReset', reason);
+  live.textContent = 'Microphone got stuck — resetting…';
+  // Save a finished set that's still on the card before reloading.
+  const go = () => location.reload();
+  if (state.pending && store.isComplete(state.pending)) void acceptPending().finally(() => setTimeout(go, 300));
+  else setTimeout(go, 600);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    hiddenAt = Date.now();
+    return;
+  }
+  const away = Date.now() - hiddenAt;
+  if (hiddenAt && away > 3000 && micUsedThisLoad && localStorage.getItem(REFRESH_ON_RETURN) === '1' && !recording && $('sheet').hidden) {
+    resetMic(`back after ${Math.round(away / 1000)} s in another app`);
+  }
+});
+
+if (sessionStorage.getItem('liftlog.justReset')) {
+  const why = sessionStorage.getItem('liftlog.justReset');
+  sessionStorage.removeItem('liftlog.justReset');
+  setTimeout(() => {
+    log(`app reloaded to reset mic (${why})`);
+    if (why === 'stuck mic') showToast('Microphone reset — please say that set again.');
+  }, 500);
+}
+
+// ---------------------------------------------------------------------------
+// Safety net: Apple's keyboard dictation (only shown after a failed clip)
+// ---------------------------------------------------------------------------
+const dictateBtn = $<HTMLButtonElement>('dictate');
+dictateBtn.addEventListener('click', () => openDictation(handleTranscript));
+
+const handlersErrors: Pick<SpeechHandlers, 'onError'> = {
   onError: (code, message) => {
     setMicOn(false);
     log(`ERROR ${code}: ${message}`);
@@ -152,8 +220,10 @@ const handlers: SpeechHandlers = {
       code === 'not-allowed' || code === 'service-not-allowed'
         ? 'Mic or dictation blocked — check Settings → Safari → Microphone, and that Dictation is on.'
         : `Voice error: ${code}. Try again, or use + to add manually.`;
+    dictateBtn.hidden = false;
   },
 };
+handlers.onError = handlersErrors.onError;
 safariEngine.handlers = handlers;
 onDeviceEngine.handlers = handlers;
 
@@ -162,6 +232,7 @@ function startRecording(): void {
   recording = true;
   // Haptics off from here until the clip is done (they can interrupt the mic).
   setMicOn(true);
+  dictateBtn.hidden = true;
   pressedAt = performance.now();
   clearAutoAccept();
   // A finished result is still on the card? Save it before the next one.

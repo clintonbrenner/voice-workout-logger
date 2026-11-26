@@ -311,6 +311,54 @@ export function renderConfirm(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Keyboard dictation (safety net after a failed clip)
+// ---------------------------------------------------------------------------
+/**
+ * Opens a text box with the keyboard up. Tap the 🎤 key on the iPhone keyboard,
+ * say the set, then tap "Log it" (or Return). Uses Apple's own dictation, which
+ * copes fine with music and AirPods.
+ */
+export function openDictation(onText: (text: string) => void): void {
+  const sheet = $('sheet');
+  const close = () => {
+    sheet.hidden = true;
+    mount(sheet);
+  };
+  const submit = () => {
+    const text = box.value.trim();
+    if (!text) return;
+    close();
+    onText(text);
+  };
+  const box = h('textarea', {
+    class: 'paste-box dictate-box',
+    rows: 2,
+    placeholder: 'e.g. bench 185 for 8',
+    enterkeyhint: 'done',
+    onkeydown: (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submit();
+      }
+    },
+  });
+  mount(
+    sheet,
+    h('div', { class: 'sheet-backdrop', onclick: close }),
+    h('div', { class: 'sheet-panel', role: 'dialog', 'aria-label': 'Dictate a set' },
+      h('div', { class: 'sheet-title' }, 'Say your set'),
+      h('div', { class: 'dictate-hint' }, 'Tap the 🎤 on the keyboard, say the set, then tap Log it.'),
+      box,
+      h('div', { class: 'sheet-actions' },
+        h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'),
+        h('button', { class: 'btn primary', type: 'button', onclick: submit }, 'Log it')),
+    ),
+  );
+  sheet.hidden = false;
+  box.focus(); // inside the tap, so iPhone shows the keyboard right away
+}
+
+// ---------------------------------------------------------------------------
 // Toast
 // ---------------------------------------------------------------------------
 let toastTimer: number | undefined;

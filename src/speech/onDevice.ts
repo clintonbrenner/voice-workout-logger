@@ -118,6 +118,34 @@ for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {
   window.addEventListener(type, unlockAudio, { capture: true, passive: true });
 }
 
+/*
+ * When you switch to another app (e.g. Music), iOS takes the audio away. The old
+ * audio connection can come back "zombie" (mic icon on, but only silence), so we
+ * throw it away and build a fresh one on your next tap.
+ */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && sharedCtx) {
+    void sharedCtx.close().catch(() => {});
+    sharedCtx = null;
+  }
+});
+
+/**
+ * Tells iPhone what kind of audio we need (Safari's Audio Session API, iOS 16.4+).
+ * 'play-and-record' while recording; 'auto' afterwards so we don't hold on to it.
+ */
+export function setAudioSession(type: 'play-and-record' | 'auto'): void {
+  try {
+    const s = (navigator as unknown as { audioSession?: { type: string } }).audioSession;
+    if (s) s.type = type;
+  } catch {
+    /* not supported */
+  }
+}
+
+/** True once the mic has been used since the app (re)loaded. */
+export let micUsedThisLoad = false;
+
 export function audioUnlocked(): boolean {
   return sharedCtx?.state === 'running';
 }
@@ -152,6 +180,8 @@ export class ClipRecorder {
   peak = 0;
 
   async start(): Promise<void> {
+    micUsedThisLoad = true;
+    setAudioSession('play-and-record');
     const ctx = audioContext();
     unlockAudio(); // works if this IS a real tap (e.g. the Diagnostics test button)
     this.ctx = ctx;
@@ -247,6 +277,7 @@ export class ClipRecorder {
 
   /** Stops recording and returns 16 kHz mono audio ready for the model. */
   async stop(): Promise<Float32Array> {
+    setAudioSession('auto');
     if (this.mode === 'backup' && this.mediaRec) {
       const rec = this.mediaRec;
       this.mediaRec = null;
@@ -391,6 +422,8 @@ export class OnDeviceEngine implements SpeechEngine {
         if (audio.length < 16000 * 0.3 || peak < 3) {
           // Nothing (or only silence) came through — don't let the model guess.
           this.handlers.onEvent?.('on-device: clip was silent — skipped');
+          // Held for a while but the mic never gave any sound: it's stuck ("zombie" mic).
+          if (soundAfterMs < 0 || (peak === 0 && audio.length > 16000)) this.handlers.onEvent?.('mic-dead');
           this.handlers.onFinal?.('');
           return;
         }
