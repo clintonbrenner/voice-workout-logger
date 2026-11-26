@@ -8,6 +8,7 @@
  */
 import { h, mount, $ } from './dom';
 import { haptic, isStandalone, testMicLevel } from '../device';
+import { clearLogUrl, enqueueLog, flushLog, lastSent, logUrl, setLogUrl } from '../logUpload';
 import type { PlannedExercise } from '../models';
 import { importPlan, AI_PROMPT, FORMAT_EXAMPLE, type ImportedDay } from '../plan/importPlan';
 import * as store from '../store';
@@ -29,6 +30,30 @@ export const debugLog: string[] = [];
 export function log(msg: string): void {
   debugLog.unshift(`${new Date().toLocaleTimeString([], { hour12: false })}  ${msg}`);
   debugLog.length = Math.min(debugLog.length, 100);
+  enqueueLog(msg); // also sent to your Google Sheet, if auto-send is set up
+}
+
+/** Diagnostics: auto-send the log to your Google Sheet. */
+function autoSendRow() {
+  if (logUrl()) {
+    return h('div', { class: 'mic-test' },
+      h('div', { class: 'small' }, `Auto-send log: on ✓${lastSent() ? ` (last sent ${lastSent()})` : ''}`),
+      h('button', { class: 'btn small', type: 'button', onclick: () => { clearLogUrl(); renderPlan(); showToast('Auto-send log turned off.'); } }, 'Turn off auto-send'));
+  }
+  let value = '';
+  return h('div', { class: 'mic-test' },
+    h('div', { class: 'small' }, 'Auto-send log to your Google Sheet: paste the script’s web-app link.'),
+    h('input', { class: 'text', type: 'url', placeholder: 'https://script.google.com/macros/s/…/exec', oninput: (e: Event) => (value = (e.target as HTMLInputElement).value) }),
+    h('button', {
+      class: 'btn small', type: 'button',
+      onclick: () => {
+        if (!setLogUrl(value)) return showToast('That doesn’t look like an Apps Script link (…/exec).');
+        log(`auto-send log turned on (${isStandalone ? 'Home Screen' : 'Browser'})`);
+        flushLog();
+        renderPlan();
+        showToast('Auto-send log is on.');
+      },
+    }, 'Turn on'));
 }
 
 export function renderPlan(): void {
@@ -380,6 +405,7 @@ function diagnosticsSection() {
         }
       },
     }, 'Copy log'),
+    autoSendRow(),
     h('ol', { class: 'log' }, debugLog.map((l) => h('li', null, l))),
   );
 }
