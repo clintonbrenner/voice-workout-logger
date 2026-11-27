@@ -26,6 +26,15 @@ const WORD_FIXES: Record<string, string> = {
   raps: 'reps',
   rips: 'reps',
   repetitions: 'reps',
+  // time (for timed exercises like holds)
+  sec: 'sec',
+  secs: 'sec',
+  second: 'sec',
+  seconds: 'sec',
+  min: 'min',
+  mins: 'min',
+  minute: 'min',
+  minutes: 'min',
   // plates
   plates: 'plate',
   quarters: 'quarter',

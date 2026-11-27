@@ -35,14 +35,26 @@
     <!-- Bottom dock (Workout tab only): confirmation card + giant record button -->
     <div id="dock" class="dock">
       <div id="confirm" class="confirm" hidden></div>
+      <!-- Rest timer: shown after each logged set (ring drains around the button) -->
+      <div id="rest" class="rest" hidden>
+        <button id="rest-add" class="btn small" type="button">+30</button>
+        <span id="rest-time" class="rest-time" aria-live="polite">1:30</span>
+        <button id="rest-close" class="btn small" type="button" aria-label="Dismiss rest timer">✕</button>
+      </div>
       <div id="live" class="live">Hold to log a set</div>
       <!-- Only appears after a failed clip: use Apple's keyboard dictation instead -->
       <button id="dictate" class="btn small dictate" type="button" hidden>🎤 Dictate instead</button>
-      <button id="record" class="record" type="button" aria-label="Hold to record">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" />
+      <div class="record-wrap">
+        <svg class="rest-ring" id="rest-ring-svg" viewBox="0 0 100 100" aria-hidden="true" hidden>
+          <circle class="ring-bg" cx="50" cy="50" r="47" />
+          <circle class="ring-fg" id="rest-ring" cx="50" cy="50" r="47" transform="rotate(-90 50 50)" />
         </svg>
-      </button>
+        <button id="record" class="record" type="button" aria-label="Hold to record">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <div id="toast" class="toast" hidden></div>

@@ -7,6 +7,7 @@
 import { h, mount, $ } from './dom';
 import { openEditSheet } from './editSheet';
 import { haptic, isStandalone, keepScreenAwake, warmUpMic } from '../device';
+import { restSecondsFor, startRest } from '../restTimer';
 import { formatSet, formatTarget, type LoggedSet } from '../models';
 import * as store from '../store';
 import { state } from '../store';
@@ -145,6 +146,15 @@ function exerciseChoices(): string[] {
   return [...plan, ...all];
 }
 
+/** Start the rest timer for an exercise, using the rest time from the plan. */
+function restAfter(exercise: string): void {
+  // Today's plan first, then any other workout that has this exercise.
+  const plan =
+    store.menuExercises().find((e) => e.name === exercise && (e.restSecMin || e.restSecMax)) ??
+    state.workouts.flatMap((w) => w.exercises).find((e) => e.name === exercise && (e.restSecMin || e.restSecMax));
+  startRest(restSecondsFor(plan));
+}
+
 /** "+" on an exercise card: start from your last set of it. */
 function manualAdd(exercise: string): void {
   const prev = store.setsFor(exercise).at(-1) ?? store.lastTime(exercise).at(-1);
@@ -154,13 +164,16 @@ function manualAdd(exercise: string): void {
       exercise,
       weightLb: prev?.weightLb ?? null,
       reps: prev?.reps ?? null,
-      bodyweight: prev?.bodyweight ?? false,
+      unit: store.isTimed(exercise) ? 'seconds' : undefined,
+      bodyweight: prev?.bodyweight ?? store.isTimed(exercise),
       notes: '',
     },
     exercises: exerciseChoices(),
+    isTimed: store.isTimed,
     saveLabel: 'Add set',
     onSave: async (v) => {
       await store.addSet(v);
+      restAfter(v.exercise);
       showToast('Set added');
     },
   });
@@ -170,8 +183,9 @@ function manualAdd(exercise: string): void {
 export function editSet(s: LoggedSet): void {
   openEditSheet({
     title: 'Edit set',
-    values: { exercise: s.exercise, weightLb: s.weightLb, reps: s.reps, bodyweight: s.bodyweight, notes: s.notes },
+    values: { exercise: s.exercise, weightLb: s.weightLb, reps: s.reps, unit: s.unit, bodyweight: s.bodyweight, notes: s.notes },
     exercises: exerciseChoices(),
+    isTimed: store.isTimed,
     onSave: (v) => void store.updateSet(s, v),
     onDelete: async () => {
       const removed = await store.removeSet(s.id, s);
@@ -190,8 +204,11 @@ export function clearAutoAccept(): void {
   autoTimer = undefined;
 }
 
-/** Saves the pending set. Returns false if it's missing something. */
-export async function acceptPending(): Promise<boolean> {
+/**
+ * Saves the pending set. Returns false if it's missing something.
+ * `withRest` = start the rest timer (not when you're already recording the next set).
+ */
+export async function acceptPending(withRest = true): Promise<boolean> {
   clearAutoAccept();
   const p = state.pending;
   if (!p || !store.isComplete(p)) return false;
@@ -201,9 +218,11 @@ export async function acceptPending(): Promise<boolean> {
     exercise: p.exercise!,
     weightLb: p.weightLb,
     reps: p.reps!,
+    unit: p.unit,
     bodyweight: p.bodyweight,
     transcript: p.transcript,
   });
+  if (withRest) restAfter(set.exercise);
   showToast(`Logged ${set.exercise}: ${formatSet(set)}`, () => void store.removeSet(set.id));
   return true;
 }
@@ -219,13 +238,15 @@ function editPending(): void {
   const p = state.pending!;
   openEditSheet({
     title: 'Fix this set',
-    values: { exercise: p.exercise, weightLb: p.weightLb, reps: p.reps, bodyweight: p.bodyweight, notes: '' },
+    values: { exercise: p.exercise, weightLb: p.weightLb, reps: p.reps, unit: p.unit, bodyweight: p.bodyweight, notes: '' },
     exercises: exerciseChoices(),
+    isTimed: store.isTimed,
     highlight: p.uncertain,
     saveLabel: 'Log set',
     onSave: async (v) => {
       state.pending = null;
       const set = await store.addSet({ ...v, transcript: p.transcript });
+      restAfter(set.exercise);
       showToast(`Logged ${set.exercise}: ${formatSet(set)}`, () => void store.removeSet(set.id));
     },
   });
@@ -267,7 +288,7 @@ export function renderConfirm(): void {
         { class: 'confirm-set' },
         h('span', { class: doubt('weight') }, weightText),
         ' × ',
-        h('span', { class: doubt('reps') }, p.reps ?? '?'),
+        h('span', { class: doubt('reps') }, `${p.reps ?? '?'}${p.unit === 'seconds' ? ' s' : ''}`),
       ),
       h('div', { class: 'confirm-transcript' }, `“${p.transcript}”`, p.corrected ? ' · correction applied' : ''),
     ),

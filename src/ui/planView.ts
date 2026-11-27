@@ -173,7 +173,17 @@ function reviewEditor() {
       ),
       h('div', { class: 'review-ex-nums' },
         h('label', null, 'Sets', numInput(ex.sets, (n) => (ex.sets = n ?? 1))),
-        h('label', null, 'Reps', numInput(ex.repsMin, (n) => { ex.repsMin = n ?? 1; if (ex.repsMax < ex.repsMin) ex.repsMax = ex.repsMin; })),
+        h('label', null,
+          h('select', {
+            class: 'unit-select', 'aria-label': 'Reps or seconds',
+            onchange: (e: Event) => {
+              if ((e.target as HTMLSelectElement).value === 'seconds') ex.unit = 'seconds';
+              else delete ex.unit;
+            },
+          },
+            h('option', { value: 'reps', selected: ex.unit !== 'seconds' }, 'Reps'),
+            h('option', { value: 'seconds', selected: ex.unit === 'seconds' }, 'Secs')),
+          numInput(ex.repsMin, (n) => { ex.repsMin = n ?? 1; if (ex.repsMax < ex.repsMin) ex.repsMax = ex.repsMin; })),
         h('label', null, 'to', numInput(ex.repsMax, (n) => (ex.repsMax = Math.max(n ?? ex.repsMin, ex.repsMin)))),
         h('label', null, 'lb', numInput(ex.targetWeightLb, (n) => (ex.targetWeightLb = n), '—')),
       ),

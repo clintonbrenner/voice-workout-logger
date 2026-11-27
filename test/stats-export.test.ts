@@ -81,20 +81,24 @@ describe('CSV export', () => {
     expect(csv.startsWith('﻿')).toBe(true);
   });
   it('has the agreed columns', () => {
-    expect(lines[0]).toBe('date,workout,exercise,set_number,weight_lb,reps,e1rm_lb,bodyweight,notes,raw_transcript');
+    expect(lines[0]).toBe('date,workout,exercise,set_number,weight_lb,reps,seconds,e1rm_lb,bodyweight,notes,raw_transcript');
   });
   it('one row per set with per-exercise set numbers', () => {
     expect(lines).toHaveLength(7);
-    expect(lines[1]).toBe('2026-11-17,Arms,EZ-Bar Preacher Curl,1,60,10,80,no,,');
-    expect(lines[3]).toBe('2026-11-17,Arms,Rope Triceps Pushdown,1,50,12,70,no,,');
-    expect(lines[4]).toBe('2026-11-24,Arms,EZ-Bar Preacher Curl,1,65,10,86.7,no,,preacher 65 for 10');
+    expect(lines[1]).toBe('2026-11-17,Arms,EZ-Bar Preacher Curl,1,60,10,,80,no,,');
+    expect(lines[3]).toBe('2026-11-17,Arms,Rope Triceps Pushdown,1,50,12,,70,no,,');
+    expect(lines[4]).toBe('2026-11-24,Arms,EZ-Bar Preacher Curl,1,65,10,,86.7,no,,preacher 65 for 10');
   });
   it('quotes commas and quotes safely', () => {
-    expect(lines[5]).toBe('2026-11-24,Arms,EZ-Bar Preacher Curl,2,65,8,82.3,no,"grip slipped, ""ugh""",');
+    expect(lines[5]).toBe('2026-11-24,Arms,EZ-Bar Preacher Curl,2,65,8,,82.3,no,"grip slipped, ""ugh""",');
   });
   it('bodyweight sets: weight 0, no e1RM', () => {
     const bw = toCsv([set('s1', '2026-11-17', 'Pull-Up', 0, 10, { bodyweight: true })], sessions);
-    expect(bw).toContain('Pull-Up,1,0,10,,yes');
+    expect(bw).toContain('Pull-Up,1,0,10,,,yes');
+  });
+  it('timed sets go in the seconds column, with no e1RM', () => {
+    const t = toCsv([set('s1', '2026-11-17', 'Hollow Body Hold', 5, 30, { unit: 'seconds' })], sessions);
+    expect(t).toContain('Hollow Body Hold,1,5,,30,,no');
   });
 });
 

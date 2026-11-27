@@ -10,6 +10,8 @@ export interface SheetValues {
   exercise: string | null;
   weightLb: number | null;
   reps: number | null;
+  /** 'seconds' for timed exercises (the reps box then holds seconds). */
+  unit?: 'seconds';
   bodyweight: boolean;
   notes: string;
 }
@@ -21,6 +23,8 @@ export interface SheetOptions {
   /** Fields to highlight (from the voice parser). */
   highlight?: string[];
   saveLabel?: string;
+  /** Whether an exercise is measured in seconds (switches the reps box to seconds). */
+  isTimed?: (exercise: string) => boolean;
   onSave: (v: SheetValues & { exercise: string; reps: number }) => void;
   onDelete?: () => void;
   onCancel?: () => void;
@@ -98,6 +102,7 @@ export function openEditSheet(opts: SheetOptions): void {
               class: 'big-select',
               onchange: (e: Event) => {
                 v.exercise = (e.target as HTMLSelectElement).value || null;
+                v.unit = v.exercise && opts.isTimed?.(v.exercise) ? 'seconds' : undefined;
                 highlight.delete('exercise');
                 render();
               },
@@ -121,7 +126,7 @@ export function openEditSheet(opts: SheetOptions): void {
           },
           v.bodyweight ? '✓ Bodyweight exercise' : 'Bodyweight exercise?',
         ),
-        stepper('Reps', 'reps', [1], ''),
+        v.unit === 'seconds' ? stepper('Seconds', 'reps', [5], 's') : stepper('Reps', 'reps', [1], ''),
 
         h('input', {
           class: 'note-input',

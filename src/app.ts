@@ -17,6 +17,7 @@ import { state, type Tab } from './store';
 import { renderWorkout, acceptPending, armAutoAccept, clearAutoAccept, renderConfirm, showToast, openDictation } from './ui/workoutView';
 import { renderPlan, log } from './ui/planView';
 import { renderHistory } from './ui/historyView';
+import { dismissRest, initRestTimer } from './restTimer';
 import { renderProgress } from './ui/progressView';
 
 // ---------------------------------------------------------------------------
@@ -235,9 +236,12 @@ function startRecording(): void {
   dictateBtn.hidden = true;
   pressedAt = performance.now();
   clearAutoAccept();
-  // A finished result is still on the card? Save it before the next one.
+  // Starting the next set ends the rest.
+  dismissRest();
+  // A finished result is still on the card? Save it before the next one (no rest timer:
+  // you're already on your next set).
   if (state.pending) {
-    if (store.isComplete(state.pending)) void acceptPending();
+    if (store.isComplete(state.pending)) void acceptPending(false);
     else store.setPending(null);
   }
   micLive = false;
@@ -311,6 +315,7 @@ if (!engine.isSupported()) {
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
+initRestTimer();
 store
   .init()
   .then(() => {

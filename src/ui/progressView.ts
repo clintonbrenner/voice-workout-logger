@@ -10,7 +10,7 @@ import { haptic } from '../device';
 import * as db from '../db';
 import { e1rm, formatSet, type LoggedSet } from '../models';
 import {
-  exercisesLogged, personalRecords, repsAtWeight, round1, sessionPoints, trend, weightsUsed, TREND_ICON, type Trend,
+  exercisesLogged, isTimedExercise, personalRecords, repsAtWeight, round1, sessionPoints, trend, weightsUsed, TREND_ICON, type Trend,
 } from '../stats';
 import { state } from '../store';
 import { editSet } from './workoutView';
@@ -67,9 +67,19 @@ function draw(): void {
   const weights = weightsUsed(sets, ex);
   if (repsWeight === null || !weights.includes(repsWeight)) repsWeight = weights[0] ?? null;
   const pr = personalRecords(sets, ex);
-  const tE1rm = trend(points.map((p) => p.bestE1rm));
+  // Timed exercises (holds) are tracked by time, not by estimated 1-rep max.
+  const timed = isTimedExercise(sets, ex);
+  const metrics: [Metric, string][] = timed
+    ? [['e1rm', 'Longest'], ['volume', 'Total time'], ['reps', 'Time @ weight'], ['top', 'Heaviest']]
+    : METRICS;
+  const sorts: [SortKey, string][] = timed
+    ? [['date', 'Newest'], ['weight', 'Weight'], ['reps', 'Longest']]
+    : SORTS;
+  if (timed && sortBy === 'e1rm') sortBy = 'reps';
+  // For holds the "e1rm" slot shows the longest hold each session, "volume" total seconds.
+  const tE1rm = trend(points.map((p) => (timed ? p.maxReps : p.bestE1rm)));
   const tTop = trend(points.map((p) => p.topWeight));
-  const tVol = trend(points.map((p) => p.volume));
+  const tVol = trend(points.map((p) => (timed ? p.totalReps : p.volume)));
 
   // ---- chart data for the chosen metric ----
   let labels: string[];
@@ -79,21 +89,26 @@ function draw(): void {
     const r = repsWeight !== null ? repsAtWeight(sets, ex, repsWeight) : [];
     labels = r.map((x) => shortDate(x.date));
     values = r.map((x) => x.reps);
-    unit = 'reps';
+    unit = timed ? 's' : 'reps';
   } else {
     labels = points.map((p) => shortDate(p.date));
-    values = points.map((p) => (metric === 'top' ? p.topWeight : metric === 'e1rm' ? p.bestE1rm : p.volume));
+    values = points.map((p) =>
+      metric === 'top' ? p.topWeight
+        : metric === 'e1rm' ? (timed ? p.maxReps : p.bestE1rm)
+          : (timed ? p.totalReps : p.volume));
+    if (timed && metric !== 'top') unit = 's';
   }
   const metricTrend = metric === 'reps' ? trend(values) : metric === 'top' ? tTop : metric === 'e1rm' ? tE1rm : tVol;
 
   // ---- table ----
   const mine = sets.filter((s) => s.exercise === ex);
-  const est = (s: LoggedSet) => e1rm(s.weightLb ?? 0, s.reps);
+  const est = (s: LoggedSet) => (s.unit === 'seconds' ? 0 : e1rm(s.weightLb ?? 0, s.reps));
   const sorted = [...mine].sort((a, b) =>
     sortBy === 'weight' ? (b.weightLb ?? 0) - (a.weightLb ?? 0) || b.reps - a.reps
       : sortBy === 'reps' ? b.reps - a.reps || (b.weightLb ?? 0) - (a.weightLb ?? 0)
         : sortBy === 'e1rm' ? est(b) - est(a)
           : b.createdAt - a.createdAt);
+  const longest = timed ? mine.reduce<LoggedSet | null>((a, b) => (!a || b.reps > a.reps ? b : a), null) : null;
 
   const canvas = h('canvas', { 'aria-label': `${ex} chart` });
 
@@ -104,15 +119,15 @@ function draw(): void {
         class: 'big-select', 'aria-label': 'Exercise',
         onchange: (e: Event) => { exercise = (e.target as HTMLSelectElement).value; draw(); },
       }, names.map((n) => {
-        const t = trend(sessionPoints(sets, n).map((p) => p.bestE1rm));
+        const t = trend(sessionPoints(sets, n).map((p) => (isTimedExercise(sets, n) ? p.maxReps : p.bestE1rm)));
         return h('option', { value: n, selected: n === ex }, `${n} ${TREND_ICON[t]}`);
       })),
       h('div', { class: 'trend-row' },
-        trendChip('Est. 1RM', tE1rm), trendChip('Top weight', tTop), trendChip('Volume', tVol)),
+        trendChip(timed ? 'Longest' : 'Est. 1RM', tE1rm), trendChip('Top weight', tTop), trendChip(timed ? 'Total time' : 'Volume', tVol)),
     ),
 
     h('section', { class: 'panel' },
-      seg(METRICS, metric, (v) => (metric = v)),
+      seg(metrics, metric, (v) => (metric = v)),
       metric === 'reps' && weights.length
         ? h('div', { class: 'chips weight-pick' }, weights.slice(0, 8).map((w) =>
             h('button', { class: `chip ${w === repsWeight ? 'on' : ''}`, type: 'button', onclick: () => { repsWeight = w; draw(); } }, `${w} lb`)))
@@ -129,26 +144,27 @@ function draw(): void {
     h('section', { class: 'panel' },
       h('h2', null, 'Personal records'),
       h('div', { class: 'pr-grid' },
-        pr.heaviest ? prCard('Heaviest', `${pr.heaviest.weightLb} lb × ${pr.heaviest.reps}`, pr.heaviest.date) : null,
-        pr.bestE1rm ? prCard('Best est. 1RM', `${pr.bestE1rm.value} lb`, pr.bestE1rm.date, `${pr.bestE1rm.weightLb} × ${pr.bestE1rm.reps}`) : null,
+        longest ? prCard('Longest hold', `${longest.reps} s`, longest.date, longest.weightLb ? `with ${longest.weightLb} lb` : 'bodyweight') : null,
+        pr.heaviest ? prCard('Heaviest', `${pr.heaviest.weightLb} lb × ${pr.heaviest.reps}${timed ? ' s' : ''}`, pr.heaviest.date) : null,
+        !timed && pr.bestE1rm ? prCard('Best est. 1RM', `${pr.bestE1rm.value} lb`, pr.bestE1rm.date, `${pr.bestE1rm.weightLb} × ${pr.bestE1rm.reps}`) : null,
       ),
       pr.mostRepsAt.length
-        ? h('div', null, h('div', { class: 'field-label' }, 'Most reps at each weight'),
+        ? h('div', null, h('div', { class: 'field-label' }, timed ? 'Longest hold at each weight' : 'Most reps at each weight'),
             h('table', { class: 'data' }, pr.mostRepsAt.slice(0, 8).map((r) =>
-              h('tr', null, h('td', null, `${r.weightLb} lb`), h('td', null, h('b', null, `${r.reps} reps`)), h('td', { class: 'muted' }, longDate(r.date))))))
+              h('tr', null, h('td', null, `${r.weightLb} lb`), h('td', null, h('b', null, timed ? `${r.reps} s` : `${r.reps} reps`)), h('td', { class: 'muted' }, longDate(r.date))))))
         : null,
     ),
 
     h('section', { class: 'panel' },
       h('h2', null, `All sets (${mine.length})`),
-      seg(SORTS, sortBy, (v) => (sortBy = v)),
+      seg(sorts, sortBy, (v) => (sortBy = v)),
       h('table', { class: 'data sets-table' },
-        h('tr', null, h('th', null, 'Date'), h('th', null, 'Set'), h('th', null, 'Est. 1RM')),
+        h('tr', null, h('th', null, 'Date'), h('th', null, 'Set'), timed ? null : h('th', null, 'Est. 1RM')),
         sorted.slice(0, 200).map((s) =>
           h('tr', { onclick: () => editSet(s) },
             h('td', { class: 'muted' }, shortDate(s.date)),
             h('td', null, h('b', null, formatSet(s))),
-            h('td', null, s.weightLb ? `${round1(est(s))}` : '—'))),
+            timed ? null : h('td', null, s.weightLb ? `${round1(est(s))}` : '—'))),
       ),
     ),
   );

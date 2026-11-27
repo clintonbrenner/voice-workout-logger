@@ -23,11 +23,19 @@ export interface ImportedDay {
 const DEFAULT_TARGET = { sets: 3, repsMin: 10, repsMax: 10 };
 
 const DASH = '(?:-|–|—|to)';
-// "3 sets × 8–12 reps", "3x10", "4 × 6-8", "3 sets of 15"
+// "3 sets × 8–12 reps", "3x10", "4 × 6-8", "3 sets of 15",
+// timed: "3 x 30 sec", "3 x 30-45 seconds", "3 x 30s", "2 x 1 min"
 const SETS_X_REPS = new RegExp(
-  `(\\d+)\\s*(?:sets?)?\\s*(?:x|×|\\*|of)\\s*(\\d+)(?:\\s*${DASH}\\s*(\\d+))?\\s*(?:reps?)?`,
+  `(\\d+)\\s*(?:sets?)?\\s*(?:x|×|\\*|of)\\s*(\\d+)(?:\\s*${DASH}\\s*(\\d+))?\\s*(?:(reps?)\\b|(secs?|seconds?|s)\\b|(mins?|minutes?)\\b)?`,
   'i',
 );
+
+/** Seconds or minutes written after a rep count ("30 sec", "1 min"). */
+function timeUnit(text: string): 1 | 60 | null {
+  if (/^\s*(mins?|minutes?)\b/i.test(text)) return 60;
+  if (/^\s*(secs?|seconds?|s)\b/i.test(text)) return 1;
+  return null;
+}
 // "Sets: 3" + "Reps: 10-12" (any order, same line)
 const SETS_LABEL = /\bsets?\s*[:=]?\s*(\d+)/i;
 const REPS_LABEL = new RegExp(`\\breps?\\s*[:=]?\\s*(\\d+)(?:\\s*${DASH}\\s*(\\d+))?`, 'i');
@@ -41,7 +49,7 @@ const DAY_WORDS =
   /^(day\s*\d+|week\s*\d+|session\s*\d+|workout\s*[a-z0-9]?\b|(mon|tues|wednes|thurs|fri|satur|sun)day|push|pull|legs?|leg day|upper|lower|arms?|arm day|chest|back|shoulders|full[\s-]?body|glutes|core|today'?s workout)\b/i;
 
 interface Parsed {
-  setsReps?: { sets: number; repsMin: number; repsMax: number; index: number; length: number };
+  setsReps?: { sets: number; repsMin: number; repsMax: number; index: number; length: number; seconds?: boolean };
   weight?: number;
   restSec?: [number, number];
 }
@@ -50,9 +58,13 @@ function parseLine(line: string): Parsed {
   const out: Parsed = {};
   const m = SETS_X_REPS.exec(line);
   if (m) {
-    const a = Number(m[2]);
-    const b = m[3] ? Number(m[3]) : a;
-    out.setsReps = { sets: Number(m[1]), repsMin: Math.min(a, b), repsMax: Math.max(a, b), index: m.index, length: m[0].length };
+    const mult = m[6] ? 60 : 1;
+    const a = Number(m[2]) * mult;
+    const b = m[3] ? Number(m[3]) * mult : a;
+    out.setsReps = {
+      sets: Number(m[1]), repsMin: Math.min(a, b), repsMax: Math.max(a, b), index: m.index, length: m[0].length,
+      seconds: !!(m[5] || m[6]),
+    };
   } else {
     const s = SETS_LABEL.exec(line);
     const r = REPS_LABEL.exec(line);
@@ -203,14 +215,17 @@ export function importPlan(text: string): ImportedDay[] {
         const reps = /(\d+)(?:\s*(?:-|–|—|to)\s*(\d+))?/.exec(get(t.reps));
         const sets = /(\d+)/.exec(get(t.sets));
         const p = parseLine(`${get(t.sets)} x ${get(t.reps)}`);
-        const a = reps ? Number(reps[1]) : DEFAULT_TARGET.repsMin;
-        const b = reps?.[2] ? Number(reps[2]) : a;
+        // A reps cell like "30 sec" or "1 min" makes it a timed exercise.
+        const unit = reps ? timeUnit(get(t.reps).slice(reps.index + reps[0].length)) : null;
+        const a = reps ? Number(reps[1]) * (unit ?? 1) : DEFAULT_TARGET.repsMin;
+        const b = reps?.[2] ? Number(reps[2]) * (unit ?? 1) : a;
         const ex: PlannedExercise = {
           name,
           sets: sets ? Number(sets[1]) : p.setsReps?.sets ?? DEFAULT_TARGET.sets,
           repsMin: Math.min(a, b),
           repsMax: Math.max(a, b),
         };
+        if (unit) ex.unit = 'seconds';
         const w = /(\d+(?:\.\d+)?)/.exec(get(t.weight));
         if (w) ex.targetWeightLb = Number(w[1]);
         const r = parseLine(`rest ${get(t.rest)}`).restSec;
@@ -269,6 +284,7 @@ export function importPlan(text: string): ImportedDay[] {
         repsMin: parsed.setsReps.repsMin,
         repsMax: parsed.setsReps.repsMax,
       };
+      if (parsed.setsReps.seconds) ex.unit = 'seconds';
       if (group) ex.muscleGroup = group;
       if (parsed.weight) ex.targetWeightLb = parsed.weight;
       if (parsed.restSec) [ex.restSecMin, ex.restSecMax] = parsed.restSec;
@@ -307,6 +323,7 @@ export const FORMAT_EXAMPLE = `Day 1 - Push
 Bench Press: 4 x 6-8 @ 185 lb, rest 120 sec
 Incline Dumbbell Press: 3 x 8-10, rest 90 sec
 Lateral Raise: 3 x 12-15
+Hollow Body Hold: 3 x 30 sec
 
 Day 2 - Pull
 Deadlift: 3 x 5 @ 315 lb, rest 180 sec`;
@@ -316,4 +333,4 @@ export const AI_PROMPT = `Please format my workout plan as plain text exactly li
 
 ${FORMAT_EXAMPLE}
 
-Rules: one exercise per line, "sets x reps" (a rep range like 8-12 is fine), add "@ weight lb" only if there is a target weight, and start each workout day with its own header line.`;
+Rules: one exercise per line, "sets x reps" (a rep range like 8-12 is fine), for timed exercises write "sets x seconds sec" (like the hold above), add "@ weight lb" only if there is a target weight, and start each workout day with its own header line.`;

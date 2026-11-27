@@ -17,6 +17,8 @@ export interface Pending {
   exercise: string | null;
   weightLb: number | null;
   reps: number | null;
+  /** 'seconds' for timed sets. */
+  unit?: 'seconds';
   bodyweight: boolean;
   transcript: string;
   uncertain: Field[];
@@ -114,6 +116,23 @@ export function knownExercises(): KnownExercise[] {
   return list;
 }
 
+/** Exercises measured in seconds: timed in any plan, or last logged in seconds. */
+export function timedExercises(): string[] {
+  const names = new Set<string>();
+  for (const w of state.workouts) for (const e of w.exercises) if (e.unit === 'seconds') names.add(e.name);
+  const seen = new Set<string>();
+  for (const s of state.recentSets) {
+    if (seen.has(s.exercise)) continue;
+    seen.add(s.exercise);
+    if (s.unit === 'seconds') names.add(s.exercise);
+  }
+  return [...names];
+}
+
+export function isTimed(exercise: string | null | undefined): boolean {
+  return !!exercise && timedExercises().some((n) => n.toLowerCase() === exercise.toLowerCase());
+}
+
 export function parseContext(): ParseContext {
   return {
     planExercises: (selectedWorkout()?.exercises ?? []).map((e) => e.name),
@@ -122,6 +141,7 @@ export function parseContext(): ParseContext {
     history: state.recentSets.map((s) => ({
       exercise: s.exercise, weightLb: s.weightLb, reps: s.reps, bodyweight: s.bodyweight,
     })),
+    timedExercises: timedExercises(),
   };
 }
 
@@ -219,6 +239,7 @@ export function setPending(p: ParsedSet | null): void {
     exercise: p.exercise,
     weightLb: p.weightLb,
     reps: p.reps,
+    unit: p.unit === 'seconds' ? 'seconds' : undefined,
     bodyweight: p.bodyweight,
     transcript: p.transcript,
     uncertain: p.uncertain,
@@ -242,6 +263,7 @@ export interface SetValues {
   exercise: string;
   weightLb: number | null;
   reps: number;
+  unit?: 'seconds';
   bodyweight: boolean;
   notes?: string;
   transcript?: string;
@@ -257,6 +279,7 @@ export async function addSet(v: SetValues): Promise<LoggedSet> {
     exercise: v.exercise,
     weightLb: v.weightLb,
     reps: v.reps,
+    ...(v.unit === 'seconds' ? { unit: 'seconds' as const } : {}),
     bodyweight: v.bodyweight,
     notes: v.notes ?? '',
     transcript: v.transcript ?? '',

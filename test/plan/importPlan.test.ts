@@ -120,6 +120,26 @@ Sets: 3, Reps: 15
     expect(days[1].exercises[0].name).toBe('Deadlift');
   });
 
+  it('timed exercises in seconds or minutes', () => {
+    const days = importPlan(`Core
+Hollow Body Hold: 3 x 30 sec
+Plank 3 x 45-60 seconds
+Side Plank: 2 x 1 min
+Dead Bug: 3 x 10`);
+    expect(days[0].exercises).toEqual([
+      { name: 'Hollow Body Hold', sets: 3, repsMin: 30, repsMax: 30, unit: 'seconds' },
+      { name: 'Plank', sets: 3, repsMin: 45, repsMax: 60, unit: 'seconds' },
+      { name: 'Side Plank', sets: 2, repsMin: 60, repsMax: 60, unit: 'seconds' },
+      { name: 'Dead Bug', sets: 3, repsMin: 10, repsMax: 10 },
+    ]);
+  });
+
+  it('timed exercise in a table', () => {
+    const days = importPlan(`| Exercise | Sets | Reps |\n|---|---|---|\n| Plank | 3 | 45 sec |\n| Crunch | 3 | 15 |`);
+    expect(days[0].exercises[0]).toMatchObject({ name: 'Plank', repsMin: 45, unit: 'seconds' });
+    expect(days[0].exercises[1].unit).toBeUndefined();
+  });
+
   it('empty or junk text gives nothing', () => {
     expect(importPlan('')).toEqual([]);
     expect(importPlan('Here is your plan! Let me know if you have questions.')).toEqual([]);

@@ -166,8 +166,42 @@ describe('"same" phrases', () => {
     check('same as last', { activeExercise: 'Bench Press' }, { uncertain: ['weight', 'reps'] });
   });
 
-  it('just reps: borrows the weight from your last set but flags it', () => {
-    check('11', ctx, { exercise: 'Dumbbell Hammer Curl', weightLb: 30, reps: 11, uncertain: ['weight'] });
+  it('just reps: keeps the weight from your last set of that exercise', () => {
+    check('11', ctx, { exercise: 'Dumbbell Hammer Curl', weightLb: 30, reps: 11, uncertain: [] });
+    check('7 reps', ctx, { exercise: 'Dumbbell Hammer Curl', weightLb: 30, reps: 7, uncertain: [] });
+    check('seven', ctx, { exercise: 'Dumbbell Hammer Curl', weightLb: 30, reps: 7, uncertain: [] });
+  });
+
+  it('just reps for another exercise uses that exercise’s last weight', () => {
+    check('rope pushdown 13', ctx, { exercise: 'Rope Triceps Pushdown', weightLb: 60, reps: 13, uncertain: [] });
+  });
+
+  it('just reps with no earlier set of that exercise still asks for the weight', () => {
+    check('8', { ...ctx, activeExercise: 'Seated Wrist Curl' }, { exercise: 'Seated Wrist Curl', weightLb: null, reps: 8, uncertain: ['weight'] });
+  });
+});
+
+describe('timed exercises (seconds)', () => {
+  const HOLD = 'Hollow Body Hold';
+  const ctx: ParseContext = {
+    planExercises: [HOLD, 'Bench Press'],
+    knownExercises: [{ name: HOLD }, { name: 'Bench Press', aliases: ['bench'] }],
+    timedExercises: [HOLD],
+  };
+  it.each<[string, ParseContext, Partial<ParsedSet>]>([
+    ['hollow body hold 30 seconds', ctx, { exercise: HOLD, weightLb: 0, reps: 30, unit: 'seconds', bodyweight: true, uncertain: [] }],
+    ['hollow hold 5 pounds 30 seconds', ctx, { exercise: HOLD, weightLb: 5, reps: 30, unit: 'seconds', uncertain: [] }],
+    ['hollow hold 5 pounds added for 30 seconds', ctx, { exercise: HOLD, weightLb: 5, reps: 30, unit: 'seconds', uncertain: [] }],
+    ['hollow hold 5 for 45 seconds', ctx, { exercise: HOLD, weightLb: 5, reps: 45, unit: 'seconds' }],
+    ['hollow hold 1 minute', ctx, { exercise: HOLD, reps: 60, unit: 'seconds' }],
+    ['hollow hold 45', ctx, { exercise: HOLD, weightLb: 0, reps: 45, unit: 'seconds', uncertain: [] }],
+    ['hollow hold 5 30', ctx, { exercise: HOLD, weightLb: 5, reps: 30, unit: 'seconds' }],
+    ['90 seconds', { ...ctx, activeExercise: HOLD }, { exercise: HOLD, reps: 90, unit: 'seconds' }],
+    ['bench 185 for 8', ctx, { exercise: 'Bench Press', weightLb: 185, reps: 8, unit: 'reps' }],
+  ])('%s', (text, c, expected) => {
+    const r = parseSet(text, c);
+    const picked = Object.fromEntries(Object.keys(expected).map((k) => [k, r[k as keyof ParsedSet]]));
+    expect(picked, `"${text}"`).toEqual(expected);
   });
 });
 

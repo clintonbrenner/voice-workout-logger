@@ -9,7 +9,7 @@ import { groupSession, round1 } from './stats';
 // CSV
 // ---------------------------------------------------------------------------
 export const CSV_COLUMNS = [
-  'date', 'workout', 'exercise', 'set_number', 'weight_lb', 'reps', 'e1rm_lb', 'bodyweight', 'notes', 'raw_transcript',
+  'date', 'workout', 'exercise', 'set_number', 'weight_lb', 'reps', 'seconds', 'e1rm_lb', 'bodyweight', 'notes', 'raw_transcript',
 ] as const;
 
 /** Quotes a value only when needed (commas, quotes, line breaks). */
@@ -31,8 +31,10 @@ export function toCsv(sets: LoggedSet[], sessions: Session[]): string {
     const n = (setNo.get(key) ?? 0) + 1;
     setNo.set(key, n);
     const weight = s.weightLb ?? '';
-    const est = s.weightLb !== null && s.weightLb > 0 ? round1(e1rm(s.weightLb, s.reps)) : '';
-    return [s.date, sessionName.get(s.sessionId) ?? '', s.exercise, n, weight, s.reps, est, s.bodyweight ? 'yes' : 'no', s.notes, s.transcript]
+    const timed = s.unit === 'seconds';
+    // Timed sets (holds) go in the seconds column and have no estimated 1-rep max.
+    const est = !timed && s.weightLb !== null && s.weightLb > 0 ? round1(e1rm(s.weightLb, s.reps)) : '';
+    return [s.date, sessionName.get(s.sessionId) ?? '', s.exercise, n, weight, timed ? '' : s.reps, timed ? s.reps : '', est, s.bodyweight ? 'yes' : 'no', s.notes, s.transcript]
       .map(cell)
       .join(',');
   });
@@ -48,11 +50,12 @@ export function sessionText(session: Session, sets: LoggedSet[]): string {
   });
   const lines = [`${session.workoutName} — ${date}`];
   for (const g of groupSession(sets, session.id)) {
-    const list = g.sets.map((s) => formatSet(s).replace(' lb', '').replace(' × ', '×')).join(', ');
+    const list = g.sets.map((s) => formatSet(s).replace(' lb', '').replace(' × ', '×').replace(' s', 's')).join(', ');
     const notes = g.sets.map((s) => s.notes).filter(Boolean);
     lines.push(`${g.exercise}: ${list}${notes.length ? ` (${notes.join('; ')})` : ''}`);
   }
-  lines.push('(weights in lb, shown as weight×reps)');
+  const hasTimed = sets.some((s) => s.sessionId === session.id && s.unit === 'seconds');
+  lines.push(`(weights in lb, shown as weight×reps${hasTimed ? '; holds as weight×seconds, e.g. BW×30s' : ''})`);
   return lines.join('\n');
 }
 

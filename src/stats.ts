@@ -16,7 +16,14 @@ export interface SessionPoint {
   /** Sum of weight × reps. */
   volume: number;
   totalReps: number;
+  /** Most reps (or longest hold, for timed sets) in any one set. */
+  maxReps: number;
   sets: number;
+}
+
+/** True if this exercise is logged in seconds (holds). */
+export function isTimedExercise(sets: LoggedSet[], exercise: string): boolean {
+  return sets.some((s) => s.exercise === exercise && s.unit === 'seconds');
 }
 
 /** The weight that counts for maths. Bodyweight sets use the added weight. */
@@ -44,6 +51,7 @@ export function sessionPoints(sets: LoggedSet[], exercise: string): SessionPoint
       bestE1rm: round1(Math.max(...list.map((s) => e1rm(w(s), s.reps)))),
       volume: list.reduce((sum, s) => sum + w(s) * s.reps, 0),
       totalReps: list.reduce((sum, s) => sum + s.reps, 0),
+      maxReps: Math.max(...list.map((s) => s.reps)),
       sets: list.length,
     });
   }

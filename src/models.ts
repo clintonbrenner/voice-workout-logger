@@ -31,7 +31,10 @@ export interface LoggedSet {
   exercise: string;
   /** For bodyweight sets: the ADDED weight (0 if none). */
   weightLb: number | null;
+  /** Reps, or seconds when unit is 'seconds'. */
   reps: number;
+  /** 'seconds' for timed sets (e.g. a 30 s hold); reps if absent. */
+  unit?: 'seconds';
   bodyweight: boolean;
   notes: string;
   /** What the phone heard (empty for manual entries). */
@@ -60,14 +63,14 @@ export function e1rm(weightLb: number, reps: number): number {
   return reps === 1 ? weightLb : weightLb * (1 + reps / 30);
 }
 
-/** "60 lb × 10", "BW × 12", "BW+25 × 6" */
-export function formatSet(s: Pick<LoggedSet, 'weightLb' | 'reps' | 'bodyweight'>): string {
+/** "60 lb × 10", "BW × 12", "BW+25 × 6", timed: "5 lb × 30 s" */
+export function formatSet(s: Pick<LoggedSet, 'weightLb' | 'reps' | 'bodyweight' | 'unit'>): string {
   const w = s.bodyweight ? (s.weightLb ? `BW+${s.weightLb}` : 'BW') : `${s.weightLb ?? '?'} lb`;
-  return `${w} × ${s.reps}`;
+  return `${w} × ${s.reps}${s.unit === 'seconds' ? ' s' : ''}`;
 }
 
-/** "3 × 8–12" */
+/** "3 × 8–12", timed: "3 × 30 s" */
 export function formatTarget(e: PlannedExercise): string {
   const reps = e.repsMin === e.repsMax ? `${e.repsMin}` : `${e.repsMin}–${e.repsMax}`;
-  return `${e.sets} × ${reps}${e.targetWeightLb ? ` @ ${e.targetWeightLb} lb` : ''}`;
+  return `${e.sets} × ${reps}${e.unit === 'seconds' ? ' s' : ''}${e.targetWeightLb ? ` @ ${e.targetWeightLb} lb` : ''}`;
 }

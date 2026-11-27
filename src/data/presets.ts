@@ -6,8 +6,11 @@ export interface PlannedExercise {
   name: string;
   muscleGroup?: string;
   sets: number;
+  /** For timed exercises (unit 'seconds') these hold seconds instead of reps. */
   repsMin: number;
   repsMax: number;
+  /** 'seconds' for holds like a plank or hollow body hold; reps if absent. */
+  unit?: 'seconds';
   targetWeightLb?: number;
   restSecMin?: number;
   restSecMax?: number;

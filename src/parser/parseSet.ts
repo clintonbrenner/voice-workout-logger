@@ -37,6 +37,8 @@ export interface ParseContext {
   activeExercise?: string | null;
   /** Recent sets, newest first. */
   history?: PreviousSet[];
+  /** Exercises logged in seconds instead of reps (holds, planks…). */
+  timedExercises?: string[];
 }
 
 export interface ParsedSet {
@@ -45,7 +47,9 @@ export interface ParsedSet {
   exerciseSource: 'spoken' | 'active' | 'last' | 'none';
   /** For bodyweight sets this is the ADDED weight (0 if none). */
   weightLb: number | null;
+  /** Reps, or seconds when unit is 'seconds'. */
   reps: number | null;
+  unit: 'reps' | 'seconds';
   bodyweight: boolean;
   /** Fields the UI should highlight for you to check. */
   uncertain: Field[];
@@ -73,6 +77,7 @@ const NOT_EXERCISE = new Set([
   'did', 'do', 'i', 'just', 'got', 'um', 'uh', 'oh', 'so', 'ok', 'that', 'was', 'my', 'then', 'last',
   'please', 'log', 'it', 'me', 'per', 'side', 'each', 'hand', 'arm', 'weight', 'plus', 'next', 'yeah',
   'is', 'this', 'one', 'like', 'about', 'around', 'total', 'like', 'hmm', 'okay', 'to', 'in',
+  'sec', 'min', 'added',
 ]);
 
 const SEPARATORS = new Set(['for', 'x', 'times', 'by']);
@@ -95,6 +100,10 @@ interface Segment {
   sameWeight: boolean;
   sameReps: boolean;
   doubtful: Set<'weight' | 'reps'>;
+  /** A time was spoken ("30 seconds", "1 minute"): reps holds seconds. */
+  timed: boolean;
+  /** Two bare numbers were swapped (smaller one taken as reps). */
+  swapped?: boolean;
 }
 
 function splitOnCorrections(toks: Tok[]): Tok[][] {
@@ -114,7 +123,7 @@ function splitOnCorrections(toks: Tok[]): Tok[][] {
 function readSegment(toks: Tok[]): Segment {
   const seg: Segment = {
     weight: null, reps: null, mentions: [], loose: [], exerciseWords: [],
-    bodyweight: false, sameAll: false, sameWeight: false, sameReps: false, doubtful: new Set(),
+    bodyweight: false, sameAll: false, sameWeight: false, sameReps: false, doubtful: new Set(), timed: false,
   };
   const used = new Array<boolean>(toks.length).fill(false);
   const num = (i: number): number | null => (typeof toks[i] === 'number' && !used[i] ? (toks[i] as number) : null);
@@ -195,12 +204,20 @@ function readSegment(toks: Tok[]): Segment {
     } else if (next === 'reps') {
       set('reps', v);
       used[i] = used[i + 1] = true;
+    } else if (next === 'sec' || next === 'min') {
+      // "30 seconds", "1 minute" — a timed set; reps holds the seconds
+      set('reps', next === 'min' ? v * 60 : v);
+      seg.timed = true;
+      used[i] = used[i + 1] = true;
     } else if (typeof next === 'string' && SEPARATORS.has(next) && num(i + 2) !== null && toks[i + 3] !== 'lb') {
-      // "185 for 8", "185 x 8", "185 times 8"
+      // "185 for 8", "185 x 8", "185 times 8", timed: "5 for 30 seconds"
+      const after = toks[i + 3];
+      const amount = toks[i + 2] as number;
       set('weight', v);
-      set('reps', toks[i + 2] as number);
+      set('reps', after === 'min' ? amount * 60 : amount);
       used[i] = used[i + 1] = used[i + 2] = true;
-      if (toks[i + 3] === 'reps') used[i + 3] = true;
+      if (after === 'reps' || after === 'sec' || after === 'min') used[i + 3] = true;
+      if (after === 'sec' || after === 'min') seg.timed = true;
     } else if (prev === 'at' || prev === 'with') {
       set('weight', v); // "8 reps at 185"
       used[i] = true;
@@ -228,7 +245,10 @@ function readSegment(toks: Tok[]): Segment {
     if (seg.weight === null && seg.reps === null && L.length >= 2) {
       // "squat 225 5" → weight first, reps second (unless clearly the other way round)
       let [a, b] = L;
-      if (a <= MAX_LIKELY_REPS && b > MAX_LIKELY_REPS) [a, b] = [b, a];
+      if (a <= MAX_LIKELY_REPS && b > MAX_LIKELY_REPS) {
+        [a, b] = [b, a];
+        seg.swapped = true;
+      }
       set('weight', a);
       set('reps', b);
       if (L.length > 2) seg.doubtful.add('weight').add('reps');
@@ -277,6 +297,7 @@ export function parseSet(transcript: string, ctx: ParseContext = {}): ParsedSet 
     s.sameAll ||= c.sameAll;
     s.sameWeight ||= c.sameWeight;
     s.sameReps ||= c.sameReps;
+    s.timed ||= c.timed;
 
     // A correction that's just a number: "185 for 8, no, 9"
     if (c.loose.length === 1 && c.weight === null && c.reps === null) {
@@ -345,6 +366,14 @@ export function parseSet(transcript: string, ctx: ParseContext = {}): ParsedSet 
   }
 
   const bodyweightExercise = isBodyweightExercise(exercise, known);
+  // Timed set: a time was spoken, or the exercise is timed in your plan.
+  const timedExercise = !!exercise && (ctx.timedExercises ?? []).some((n) => n.toLowerCase() === exercise!.toLowerCase());
+  const timed = s.timed || timedExercise;
+  // "5 30" on a hold means 5 lb for 30 s; undo the reps-style "smaller number is reps" swap.
+  if (timedExercise && !s.timed && s.swapped && s.weight !== null && s.reps !== null) {
+    weight = s.reps;
+    reps = s.weight;
+  }
 
   // --- One number with no clue ---
   if (s.loose.length === 1) {
@@ -352,23 +381,24 @@ export function parseSet(transcript: string, ctx: ParseContext = {}): ParsedSet 
     if (weight !== null && reps === null) reps = n;
     else if (reps !== null && weight === null) weight = n;
     else if (weight === null && reps === null) {
-      if (bodyweight || bodyweightExercise) reps = n; // "pull-ups 10"
+      if (bodyweight || bodyweightExercise || timedExercise) reps = n; // "pull-ups 10", "plank 45"
       else if (n > MAX_LIKELY_REPS) weight = n; // "bench 185" — reps missing
-      else {
-        // "curls 12": probably reps; borrow the weight from your last set of this exercise
-        reps = n;
-        const sameExercise = history.find((h) => exercise && h.exercise.toLowerCase() === exercise.toLowerCase());
-        if (sameExercise && sameExercise.weightLb !== null) {
-          weight = sameExercise.weightLb;
-          bodyweight ||= !!sameExercise.bodyweight;
-          uncertain.add('weight');
-        }
-      }
+      else reps = n; // "curls 12" / "7": reps (weight comes from your last set, below)
     }
   }
 
-  // --- Bodyweight exercises need no weight ---
-  if (weight === null && (bodyweight || bodyweightExercise)) {
+  // --- Only reps said ("7", "7 reps"): keep the same weight as your last set of
+  // this exercise. Less to say mid-workout, and less room for error.
+  if (weight === null && reps !== null && !bodyweight && !bodyweightExercise) {
+    const last = history.find((h) => exercise && h.exercise.toLowerCase() === exercise.toLowerCase());
+    if (last && last.weightLb !== null) {
+      weight = last.weightLb;
+      bodyweight ||= !!last.bodyweight;
+    }
+  }
+
+  // --- Bodyweight exercises and holds need no weight ---
+  if (weight === null && (bodyweight || bodyweightExercise || timed)) {
     weight = 0;
     bodyweight = true;
   }
@@ -380,7 +410,8 @@ export function parseSet(transcript: string, ctx: ParseContext = {}): ParsedSet 
   if (weight === null) uncertain.add('weight');
   if (reps === null) uncertain.add('reps');
   if (weight !== null && (weight > 1000 || weight < 0)) uncertain.add('weight');
-  if (reps !== null && (reps <= 0 || reps > 100 || !Number.isInteger(reps))) uncertain.add('reps');
+  const maxAmount = timed ? 3600 : 100; // seconds vs reps
+  if (reps !== null && (reps <= 0 || reps > maxAmount || !Number.isInteger(reps))) uncertain.add('reps');
 
   const order: Field[] = ['exercise', 'weight', 'reps'];
   return {
@@ -388,6 +419,7 @@ export function parseSet(transcript: string, ctx: ParseContext = {}): ParsedSet 
     exerciseSource,
     weightLb: weight,
     reps,
+    unit: timed ? 'seconds' : 'reps',
     bodyweight,
     uncertain: order.filter((f) => uncertain.has(f)),
     corrected,
